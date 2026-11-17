@@ -134,13 +134,13 @@ notifications, visit_logs, visit_stats, licenses, upgrade_history, ai_kb
 - 前台 `/{controller}/{action}` + 语义化 slug 路由；后台固定 `/admin/{controller}/{action}`。
 - 动态 SEO 资产：`/sitemap.xml /robots.txt /rss.xml /llms.txt /favicon.ico`。
 
-## 六、部署目标（通用）
+## 六、部署目标（测试）
 
-- PHP 7.4+（兼容 8.x），需扩展：pdo_mysql、gd、mbstring、zip、openssl、sodium。
-- MySQL 5.7+（或 MariaDB 10.3+），独立数据库，字符集 utf8mb4。
-- Web 服务器 docroot 指向 `public/`（Nginx/Apache 均可），其余目录不对外暴露。
-- `config/`、`storage/` 需可写；安装向导自动生成 `config/config.php` 与 `storage/installed.json`。
-- 生产环境建议：HTTPS、关闭 debug、限制后台来源 IP、为 `storage/` 与 `config/` 配置访问拒绝。
+- 服务器：腾讯云广州 106.52.109.65（CentOS 7，宝塔 13.1，PHP 7.4，MySQL 5.7）。
+- 站点：ww.123xl.cn（复用宝塔既有 vhost「ww.123l.cn」，SSL 已签至 2027-02）。
+- docroot 调整为 `/www/wwwroot/ww.123l.cn/public`，需保留宝塔 include 结构。
+- 数据库：独立新库 `psyisle`，不与 edusoho 等既有资产共库；不触碰同机其他站点。
+- ⚠ 该机为生产机（www.123xl.cn 网校在跑）：只动 ww 站点目录与新增数据库，禁止改动全局服务。
 
 ## 七、开发纪律
 

@@ -169,6 +169,24 @@ class CounselorHome extends Base
                 Session::flash('success', '例外排班已删除');
                 \app\Core\ResponseRedirect('/admin/counselor-home/schedule');
             }
+            if ($act === 'fee') {
+                $feeArr = [];
+                foreach (Database::fetchAll('SELECT weekday, start_time, end_time FROM counselor_slots WHERE counselor_id=? AND status=1', [$cid]) as $r) {
+                    $feeKey = 'fee_' . $r['weekday'] . '_' . substr((string)$r['start_time'], 0, 5);
+                    $cents = max(0, (int)round((float)($req->post($feeKey, 0)) * 100));
+                    if ($cents > 0) $feeArr[] = ['weekday' => $r['weekday'], 'slot' => substr((string)$r['start_time'], 0, 5), 'price_cents' => $cents];
+                }
+                Database::run('UPDATE counselors SET fee_override=? WHERE id=?', [json_encode($feeArr, JSON_UNESCAPED_UNICODE), $cid]);
+                Session::flash('success', '分时定价已保存');
+                \app\Core\ResponseRedirect('/admin/counselor-home/schedule');
+            }
+            if ($act === 'leave') {
+                $on = !empty($req->post('on_leave')) ? 1 : 0;
+                $note = str_take(trim((string)$req->post('leave_note', '')), 190, '');
+                Database::run('UPDATE counselors SET on_leave=?, leave_note=? WHERE id=?', [$on, $note, $cid]);
+                Session::flash($on ? 'success' : 'success', $on ? '已标记请假（前台暂停接单）' : '已恢复接单');
+                \app\Core\ResponseRedirect('/admin/counselor-home/schedule');
+            }
         }
         $slots = Database::fetchAll('SELECT * FROM counselor_slots WHERE counselor_id=? ORDER BY weekday, start_time', [$cid]);
         $lines = [];
@@ -176,7 +194,11 @@ class CounselorHome extends Base
             $lines[] = $s['weekday'] . '|' . substr((string)$s['start_time'], 0, 5) . '|' . substr((string)$s['end_time'], 0, 5);
         }
         $overrides = Database::fetchAll('SELECT * FROM schedule_overrides WHERE counselor_id=? ORDER BY date DESC LIMIT 30', [$cid]);
-        $this->view('counselor-home/schedule', ['slotsText' => implode("\n", $lines), 'overrides' => $overrides]);
+        $onLeave = (int)$me['on_leave'];
+        $leaveNote = (string)$me['leave_note'];
+        $feeArr = json_decode((string)$me['fee_override'], true) ?: [];
+        $this->view('counselor-home/schedule', ['slotsText' => implode("\n", $lines), 'overrides' => $overrides,
+            'me' => $me, 'onLeave' => $onLeave, 'leaveNote' => $leaveNote, 'feeArr' => $feeArr]);
     }
 
     // ==================== 咨询小结与作业 ====================

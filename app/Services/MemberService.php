@@ -220,6 +220,7 @@ class MemberService
         return [
             'mail' => (int)($prefs['mail'] ?? 1) === 1,
             'wechat' => (int)($prefs['wechat'] ?? 1) === 1,
+            'sms' => (int)($prefs['sms'] ?? 1) === 1,
         ];
     }
 
@@ -349,6 +350,39 @@ class MemberService
 
     /** ===== v2.11.0：密码找回（邮件 token） ===== */
 
+    /** v2.14.0：短信验证码重置密码第一步——发送验证码到已绑定会员手机号 */
+    public static function sendPasswordResetSms(string $phone): array
+    {
+        $phone = trim($phone);
+        if (!preg_match('/^1[3-9]\d{9}$/', $phone)) return [false, '手机号格式不正确'];
+        if (!RateLimiter::hit('pwd_sms', $phone, 3, 3600)) return [false, '请求过于频繁，请 1 小时后再试'];
+        $m = Database::fetch('SELECT id, name FROM members WHERE phone=? AND status="active"', [$phone]);
+        if (!$m) return [false, '该手机号未注册会员'];
+        if (!class_exists(\plugins\smsnotify\Plugin::class)) return [false, '短信通道未安装'];
+        $code = (string)random_int(100000, 999999);
+        [$ok, $msg] = \plugins\smsnotify\Plugin::sendCode($phone, $code);
+        if (!$ok) return [false, $msg];
+        Cache::set('pwd_sms:' . hash('sha256', $phone), json_encode(['code' => $code, 'id' => (int)$m['id']]), 600);
+        return [true, '验证码已发送（10 分钟内有效）'];
+    }
+
+    /** v2.14.0：短信重置第二步——校验验证码并重置密码 */
+    public static function resetPasswordBySms(string $phone, string $code, string $newPassword): array
+    {
+        $phone = trim($phone);
+        $code = trim($code);
+        if (!preg_match('/^1[3-9]\d{9}$/', $phone) || !preg_match('/^\d{6}$/', $code)) return [false, '参数不正确'];
+        if (strlen($newPassword) < 8) return [false, '新密码至少 8 位'];
+        $key = 'pwd_sms:' . hash('sha256', $phone);
+        $row = json_decode((string)Cache::get($key), true);
+        if (!is_array($row) || !hash_equals((string)($row['code'] ?? ''), $code)) return [false, '验证码不正确或已过期'];
+        Cache::forget($key);
+        $hash = password_hash($newPassword, PASSWORD_DEFAULT);
+        Database::run('UPDATE members SET password_hash=' . Database::pdo()->quote($hash) . ' WHERE id=? AND status="active"', [(int)$row['id']]);
+        return [true, '密码已重置，请用新密码登录'];
+    }
+
+    /** v2.14.0：微信通道找回（已绑定微信的会员在微信内走 wxhub 授权后直接改密，无需验证码） */
     public static function requestPasswordReset(string $email): array
     {
         $email = trim(strtolower($email));

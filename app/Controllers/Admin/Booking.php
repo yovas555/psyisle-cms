@@ -27,6 +27,76 @@ class Booking extends Base
         'created_at' => ['提交时间', 'datetime'],
     ];
 
+    /** v2.14.0：机构侧状态变更 → 会员+咨询师通知（站内/微信/短信矩阵） */
+    private string $oldStatus = '';
+
+    protected function beforeSave(array &$data, ?int $id, string $mode): void
+    {
+        if ($mode === 'update' && $id) {
+            $this->oldStatus = (string)(Database::value('SELECT status FROM bookings WHERE id=?', [$id]) ?? '');
+        }
+        parent::beforeSave($data, $id, $mode);
+    }
+
+    protected function afterSave(array $data, int $id, string $mode): void
+    {
+        parent::afterSave($data, $id, $mode);
+        $row = Database::fetch('SELECT * FROM bookings WHERE id=?', [$id]);
+        if (!$row) return;
+        $newStatus = (string)($row['status'] ?? '');
+        if ($newStatus === $this->oldStatus || $newStatus === '') return;
+        $m = Database::fetch('SELECT id FROM members WHERE phone=? AND status="active"', [(string)$row['phone']]);
+        $statusMap = ['confirmed' => '预约已确认', 'completed' => '咨询已完成', 'cancelled' => '预约已取消', 'rescheduled' => '预约已改期'];
+        $label = $statusMap[$newStatus] ?? $newStatus;
+        $when = (string)($row['prefer_date'] ?? '') . ' ' . (string)($row['prefer_slot'] ?? '');
+        $dataN = [
+            'title' => $label . '：' . (string)$row['code'],
+            'body' => $when . ' · ' . (string)($row['method'] ?? ''),
+            'lines' => ['查询码' => (string)$row['code'], '时间' => $when, '方式' => (string)($row['method'] ?? ''), '状态' => $label],
+            'inapp_url' => '/member/bookings', 'ref_type' => 'booking', 'ref_id' => (string)$row['code'],
+            'booking' => ['id' => (int)$row['id'], 'code' => (string)$row['code'], 'phone' => (string)$row['phone']],
+        ];
+        $event = $newStatus === 'confirmed' ? 'booking_confirm'
+            : ($newStatus === 'cancelled' ? 'booking_cancel'
+            : ($newStatus === 'rescheduled' ? 'booking_reschedule' : null));
+        if ($m && $event !== null) {
+            \app\Services\MemberNotifyService::push((int)$m['id'], $event, $dataN);
+        }
+        if ((int)($row['counselor_id'] ?? 0) > 0) {
+            \app\Services\CounselorNotifyService::push((int)$row['counselor_id'],
+                $newStatus === 'cancelled' ? 'booking_cancel' : ($newStatus === 'confirmed' ? 'booking_confirm' : 'booking_reschedule'),
+                ['title' => $label . '：' . (string)$row['code'],
+                 'body' => $when . ' · 会员 ' . (string)$row['name'],
+                 'url' => '/admin/counselor-home/bookings', 'booking_id' => (int)$row['id'],
+                 'booking' => ['id' => (int)$row['id'], 'code' => (string)$row['code'], 'phone' => (string)$row['phone']]]);
+        }
+    }
+
+    /** v2.14.0：手动发送短信提醒（绕过自动引擎，避免推送失败时无兜底） */
+    public function sendSmsNow(Request $req, array $p): void
+    {
+        Csrf::guard();
+        $bid = (int)$p['id'];
+        $b = Database::fetch('SELECT * FROM bookings WHERE id=?', [$bid]);
+        if (!$b) { Session::flash('error', '预约不存在'); \app\Core\ResponseRedirect('/admin/bookings'); }
+        $phones = [];
+        if (preg_match('/^1[3-9]\d{9}$/', (string)$b['phone'])) $phones[] = (string)$b['phone'];
+        $csl = Database::fetch('SELECT phone FROM counselors WHERE id=?', [(int)($b['counselor_id'] ?? 0)]);
+        if ($csl && preg_match('/^1[3-9]\d{9}$/', (string)$csl['phone'])) $phones[] = (string)$csl['phone'];
+        $sent = 0;
+        if (class_exists(\plugins\smsnotify\Plugin::class) && (bool)setting('sms.enabled', '0')) {
+            $site = (string)setting('site.name', '');
+            foreach ($phones as $ph) {
+                $ok = \plugins\smsnotify\Plugin::sendMemberSms($ph, ['site' => str_take($site, 12, ''),
+                    'event' => str_take(($b['status'] === 'confirmed' ? '咨询已确认' : '预约提醒'), 20, ''), 'time' => date('m-d H:i')]);
+                if ($ok) $sent++;
+            }
+        }
+        $this->audit('Booking.sendSms', 'bookings', $bid, ['sent' => $sent]);
+        Session::flash($sent > 0 ? 'success' : 'error', "短信已发送 {$sent}/" . count($phones) . " 条");
+        \app\Core\ResponseRedirect('/admin/bookings');
+    }
+
     public function index(Request $req, array $p): void
     {
         $page = max(1, (int)$req->get('page', 1));

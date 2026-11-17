@@ -95,6 +95,11 @@ class App
         $r->post('/member/privacy/export', 'Member@export');
         $r->post('/member/privacy/delete', 'Member@requestDelete');
         $r->post('/member/redeem', 'Member@redeem');
+        $r->get('/member/notifications', 'Member@notifications');
+        $r->post('/member/notifications/read/{id:\d+}', 'Member@markRead');
+        $r->get('/member/notifications/unread.json', 'Member@unreadJson');
+        $r->post('/member/forgot-password/sms', 'Member@forgotPasswordSms');
+        $r->post('/member/forgot-password/reset-sms', 'Member@resetPasswordSms');
         $r->get('/member/forgot-password', 'Member@forgotPassword');
         $r->post('/member/forgot-password', 'Member@forgotPassword');
         $r->get('/member/reset-password', 'Member@resetPassword');
@@ -136,6 +141,7 @@ class App
         $r->get('/admin/cron/stats', 'Admin\Cron@stats');
         $r->get('/admin/cron/upgrade-check', 'Admin\Cron@upgradeCheck');
         $r->get('/admin/cron/booking-reminder', 'Admin\Cron@bookingReminder');
+        $r->get('/admin/cron/morning-push', 'Admin\Cron@morningPush');
         $r->get('/admin/cron/publish', 'Admin\Cron@publish');
         $r->post('/admin/cron/mail', 'Admin\Cron@mail');
 
@@ -201,6 +207,12 @@ class App
         $r->post('/admin/tools/backup', 'Admin\Tool@backup');
         $r->post('/admin/tools/full-backup', 'Admin\Tool@fullBackup');
         $r->get('/admin/tools/export-content', 'Admin\Tool@exportContent');
+        $r->get('/admin/tools/clone-wizard', 'Admin\Tool@cloneWizard');
+        $r->post('/admin/tools/clone-regen', 'Admin\Tool@cloneRegen');
+        $r->get('/admin/tools/purge-demo', 'Admin\Tool@purgeDemo');
+        $r->post('/admin/tools/purge-demo', 'Admin\Tool@purgeDemo');
+        $r->get('/admin/tools/feedback', 'Admin\Tool@feedback');
+        $r->post('/admin/tools/feedback', 'Admin\Tool@submitFeedback');
         $r->post('/admin/tools/import-content', 'Admin\Tool@importContent');
         $r->post('/admin/tools/cache', 'Admin\Tool@clearCache');
         $r->post('/admin/tools/robots', 'Admin\Tool@saveRobots');
@@ -225,6 +237,7 @@ class App
         $r->post('/admin/notifications/delete/{id:\d+}', 'Admin\Notification@delete');
         $r->post('/admin/notifications/clear-all', 'Admin\Notification@clearAll');
         $r->post('/admin/chat/destroy/{id:\d+}', 'Admin\Chat@destroy');
+        $r->post('/admin/bookings/send-sms/{id:\d+}', 'Admin\Booking@sendSmsNow');
         $r->post('/admin/chat/handback/{id:\d+}', 'Admin\Chat@handback');
         $r->post('/admin/chat/batch-delete', 'Admin\Chat@batchDelete');
         $r->post('/admin/chat/cleanup', 'Admin\Chat@cleanup');

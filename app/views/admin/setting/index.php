@@ -22,6 +22,18 @@
       <h2>基本信息</h2>
       <div class="form-grid">
         <label class="field"><span class="label">站点名称 <em>*</em></span><input type="text" name="site.name" value="<?= $v('site.name') ?>" required></label>
+        <label class="field"><span class="label">CMS 反馈站点 Key</span><input type="text" name="feedback.site_key" value="<?= $v('feedback.site_key') ?>" placeholder="由 CMS 管理台分配"></label>
+        <label class="field"><span class="label">CMS 反馈站点 Secret</span><input type="password" name="feedback.site_secret" value="<?= $v('feedback.site_secret') ?>" placeholder="由 CMS 管理台分配"></label>
+        <label class="field switch-field"><span class="label">预约需登录会员</span>
+          <label class="switch"><input type="checkbox" name="booking_require_member" value="1" <?= setting('booking.require_member','0')==='1' ? 'checked' : '' ?>><i></i></label>
+          <span class="hint">产品变更提案（默认关）——开启后未登录访客跳转登录页</span>
+        </label>
+        <label class="field switch-field"><span class="label">测评需登录会员</span>
+          <label class="switch"><input type="checkbox" name="assess_require_member" value="1" <?= setting('assess.require_member','0')==='1' ? 'checked' : '' ?>><i></i></label>
+        </label>
+        <label class="field switch-field"><span class="label">留言需登录会员</span>
+          <label class="switch"><input type="checkbox" name="message_require_member" value="1" <?= setting('message.require_member','0')==='1' ? 'checked' : '' ?>><i></i></label>
+        </label>
         <label class="field"><span class="label">品牌徽章文字</span><input type="text" name="site.brand_mark" maxlength="3" value="<?= $v('site.brand_mark') ?>" placeholder="留空取站名首字"></label>
         <label class="field"><span class="label">站点 LOGO（徽章图标）</span>
           <select name="site.logo_type">

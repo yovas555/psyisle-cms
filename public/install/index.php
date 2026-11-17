@@ -62,6 +62,10 @@ if ($_SERVER['REQUEST_METHOD'] ?? '' === 'POST') {
                 // 初始数据
                 require __DIR__ . '/seed.php';
                 seed($pdo, $siteName, $admin);
+                // v2.16.0：标记演示数据（新装站默认开启，后台可一键清除）
+                $pdo->exec("INSERT INTO settings (skey, svalue, sgroup) VALUES ('site.demo_mode', '1', 'system')");
+                $pdo->exec("UPDATE articles SET status='draft' WHERE slug IN ('welcome','about-us') AND status='published'");
+                $pdo->exec("UPDATE pages SET status='draft' WHERE slug IN ('about') AND status='published' AND id <= 5");
                 // 写 config
                 $secret = bin2hex(random_bytes(16));
                 $licSecret = 'psyisle-sign-' . bin2hex(random_bytes(8));

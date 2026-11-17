@@ -48,3 +48,52 @@
     <?php endif; ?>
   </div>
 </div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>💰 分时定价（按每个可约时段设置费用）</h2>
+  <form method="post" action="/admin/counselor-home/schedule">
+    <?= csrf_field() ?>
+    <input type="hidden" name="act" value="fee">
+    <table class="table">
+      <thead><tr><th>星期</th><th>时段</th><th>费用（元/次）</th></tr></thead>
+      <tbody>
+      <?php
+      $week = [1=>'周一',2=>'周二',3=>'周三',4=>'周四',5=>'周五',6=>'周六',7=>'周日'];
+      $feeLookup = [];
+      foreach (($feeArr ?? []) as $f) $feeLookup[$f['weekday'] . '_' . $f['slot']] = $f['price_cents'] ?? 0;
+      foreach (($slots ?? []) as $s):
+        $feeKey = $s['weekday'] . '_' . substr((string)$s['start_time'], 0, 5);
+        $feeVal = isset($feeLookup[$feeKey]) ? round($feeLookup[$feeKey] / 100, 2) : '';
+      ?>
+      <tr>
+        <td><?= e($week[$s['weekday']] ?? '') ?></td>
+        <td><?= e(substr((string)$s['start_time'],0,5)) ?> - <?= e(substr((string)$s['end_time'],0,5)) ?></td>
+        <td><input type="number" name="fee_<?= (int)$s['weekday'] ?>_<?= e(substr((string)$s['start_time'],0,5)) ?>" value="<?= $feeVal ?>" step="0.01" min="0" style="width:100px"></td>
+      </tr>
+      <?php endforeach; ?>
+      <?php if (empty($slots)): ?><tr><td colspan="3" class="empty">请在上方先设置可约时段</td></tr><?php endif; ?>
+      </tbody>
+    </table>
+    <?php if (!empty($slots)): ?>
+    <button class="btn btn-primary" type="submit">保存分时定价</button>
+    <?php endif; ?>
+  </form>
+  <p class="hint">预约时按所选时段的费用自动定价（视频咨询在线支付；面对面可线下）。</p>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>请假管理</h2>
+  <form method="post" action="/admin/counselor-home/schedule">
+    <?= csrf_field() ?>
+    <input type="hidden" name="act" value="leave">
+    <label class="field switch-field"><span class="label">请假（暂停接单）</span>
+      <label class="switch"><input type="checkbox" name="on_leave" value="1" <?= (int)($onLeave ?? 0) ? 'checked' : '' ?>><i></i></label>
+    </label>
+    <label class="field"><span class="label">请假说明</span>
+      <input type="text" name="leave_note" value="<?= e($leaveNote ?? '') ?>" placeholder="如：外出培训 3 天">
+    </label>
+    <button class="btn btn-primary" type="submit"><?= (int)($onLeave ?? 0) ? '恢复接单' : '标记请假' ?></button>
+  </form>
+  <p class="hint">请假后前台不可选择该咨询师的新预约；已确认预约不受影响。</p>
+</div>
+

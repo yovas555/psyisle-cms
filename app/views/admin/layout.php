@@ -40,8 +40,8 @@ $navDef = [
         ['label' => '通知中心', 'path' => '/admin/notifications', 'badge' => $unread, 'warn' => false],
         ['label' => '使用手册', 'path' => '/admin/help'],
     ]],
-    'jiaowu' => ['label' => '教务', 'items' => [
-        ['label' => '教务总览', 'path' => '/admin/area/jiaowu'],
+    'jiaowu' => ['label' => '事务', 'items' => [
+        ['label' => '事务总览', 'path' => '/admin/area/jiaowu'],
         ['label' => '预约管理', 'path' => '/admin/bookings', 'badge' => $pending['bookings']],
         ['label' => '咨询留言', 'path' => '/admin/messages', 'badge' => $pending['messages']],
         ['label' => 'AI 会话', 'path' => '/admin/chat', 'badge' => $pending['chats'], 'warn' => true],

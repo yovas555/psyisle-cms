@@ -46,16 +46,16 @@ class Home
     {
         $banners = Database::fetchAll("SELECT * FROM banners WHERE position='home' AND status=1 ORDER BY sort LIMIT 5");
         $featured = Database::fetchAll(
-            "SELECT name, slug, title, avatar, specialties, orientation FROM counselors WHERE status=1 AND is_featured=1 ORDER BY sort LIMIT 4"
+            "SELECT name, slug, title, avatar, specialties, orientation FROM counselors WHERE status=1 AND is_featured=1 ORDER BY sort LIMIT 3"
         );
         if (!$featured) {
             $featured = Database::fetchAll(
-                "SELECT name, slug, title, avatar, specialties, orientation FROM counselors WHERE status=1 ORDER BY sort LIMIT 4"
+                "SELECT name, slug, title, avatar, specialties, orientation FROM counselors WHERE status=1 ORDER BY sort LIMIT 3"
             );
         }
-        $services = Database::fetchAll("SELECT name, slug, summary, format, price_from, price_to, cover FROM services WHERE status=1 AND is_featured=1 ORDER BY sort LIMIT 4");
+        $services = Database::fetchAll("SELECT name, slug, summary, format, price_from, price_to, cover FROM services WHERE status=1 AND is_featured=1 ORDER BY sort LIMIT 3");
         if (!$services) {
-            $services = Database::fetchAll("SELECT name, slug, summary, format, price_from, price_to, cover FROM services WHERE status=1 ORDER BY sort LIMIT 4");
+            $services = Database::fetchAll("SELECT name, slug, summary, format, price_from, price_to, cover FROM services WHERE status=1 ORDER BY sort LIMIT 3");
         }
         $news = Database::fetchAll(
             "SELECT id, title, slug, summary, cover, published_at FROM articles WHERE status='published' AND deleted_at IS NULL ORDER BY is_top DESC, published_at DESC LIMIT 6"

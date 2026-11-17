@@ -4,7 +4,8 @@
   <div class="member-head">
     <h1>您好，<?= e($m['name']) ?></h1>
     <p class="muted">
-      手机号 <?= e(\app\Services\MemberService::maskPhone($m['phone'])) ?>
+      手机号 <?= e(\app\Services\MemberService::maskPhone($m['phone'])) ?> ·
+      <a href="<?= url('/member/notifications') ?>">站内消息</a> ·
       <?php foreach (($badges ?? []) as $bg): ?> · <span class="chip"><?= e((string)$bg) ?></span><?php endforeach; ?>
       · <a href="<?= url('/member/settings') ?>">设置</a>
       · <a href="<?= url('/member/logout') ?>">退出登录</a>
@@ -22,6 +23,15 @@
   </div>
   <?php endif; ?>
 
+  <?php if (trim((string)($m['openid'] ?? '')) === '' && !(bool)setting('wxhub.mode') === false): ?>
+  <?php endif; ?>
+  <?php // v2.14.0：未绑定微信引导（关注服务号接收预约与咨询开始提醒） ?>
+  <?php $wxOpenid = \app\Core\Database::value('SELECT openid FROM members WHERE id=?', [(int)$m['id']]); ?>
+  <?php if ($wxOpenid === null || $wxOpenid === ''): ?>
+  <div class="alert alert-warning" style="border-radius:12px;margin-top:14px">
+    <b>建议绑定微信并关注服务号</b>——用于接收咨询预约、咨询开始提醒与站内消息推送。绑定方式：微信内打开本站登录页，点「微信登录（中台）」完成一次授权即可。
+  </div>
+  <?php endif; ?>
   <div class="member-grid">
     <a class="member-card" href="<?= url('/member/bookings') ?>">
       <b>我的预约</b>
@@ -43,6 +53,12 @@
     <a class="member-card" href="<?= url('/member/notes') ?>">
       <b>咨询记录</b>
       <span class="muted">咨询师发布的小结与作业</span>
+      <em>查看 ›</em>
+    </a>
+    <?php $unreadN = (int)\app\Core\Database::value('SELECT COUNT(*) FROM member_notifications WHERE member_id=? AND is_read=0', [(int)$m['id']]); ?>
+    <a class="member-card" href="<?= url('/member/notifications') ?>">
+      <b>站内消息</b>
+      <span class="muted">未读 <?= $unreadN ?> 条（预约/支付/套餐变动）</span>
       <em>查看 ›</em>
     </a>
     <a class="member-card" href="<?= url('/member/privacy') ?>">

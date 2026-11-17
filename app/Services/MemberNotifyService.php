@@ -34,6 +34,18 @@ class MemberNotifyService
         'order_confirmed' => '套餐开通成功',
         'ledger_change' => '咨询套餐变动',
         'assess_report' => '测评报告',
+        'session_starting' => '咨询即将开始',
+        'session_room_open' => '咨询室已开启',
+    ];
+    /** 事件 → 是否同时发短信（会员侧） */
+    public const SMS_EVENTS = [
+        'booking_new' => false,       // 提交时机构未确认，省一条
+        'booking_confirm' => true,
+        'booking_cancel' => true,
+        'booking_reschedule' => true,
+        'booking_remind' => true,
+        'order_paid' => true,
+        'ledger_change' => true,
     ];
 
     /** 按手机号找会员 id（通知集成用）；找不到返回 0 */
@@ -60,6 +72,9 @@ class MemberNotifyService
             $title = (string)($data['title'] ?? (self::EVENTS[$event] ?? $event));
             $prefs = MemberService::notifyPrefs($memberId);
             $sent = false;
+
+            // 0. 站内信（v2.14.0：会员中心「站内消息」，所有事件落一条，可跳转）
+            self::inApp($memberId, $event, $title, $data);
 
             // 1. 微信通道（插件 Hook：wxhub 中台 / wechat-login 直连 响应并返回 true）
             if ($prefs['wechat']) {
@@ -90,8 +105,40 @@ class MemberNotifyService
             } else {
                 self::log((int)$m['id'], $event, 'mail', 'skipped', '会员偏好已关闭邮件通知', $title);
             }
+
+            // 3. 短信通道（v2.14.0：按事件矩阵 + 手机号 + 短信插件可用）
+            if (in_array($event, self::SMS_EVENTS, true) && ($prefs['sms'] ?? false) && ($m['phone'] ?? '') !== '') {
+                $site = (string)setting('site.name', '');
+                $label = self::EVENTS[$event] ?? '通知';
+                $ok = \plugins\smsnotify\Plugin::sendMemberSms((string)$m['phone'],
+                    ['site' => str_take($site, 12, ''), 'event' => str_take($label . '：' . $title, 20, ''), 'time' => date('m-d H:i')]);
+                self::log((int)$m['id'], $event, 'sms', $ok ? 'ok' : 'fail', $ok ? null : '阿里云发送失败（看 sms-notify 日志）', $title);
+            } else {
+                self::log((int)$m['id'], $event, 'sms', 'skipped', '事件不发短信或通道未启用', $title);
+            }
         } catch (\Throwable $t) {
             Logger::error('member-notify', 'push failed: ' . $t->getMessage(), ['event' => $event, 'member' => $memberId]);
+        }
+    }
+
+    /** 会员站内信（member_notifications）：url 为站内跳转路径 */
+    private static function inApp(int $memberId, string $event, string $title, array $data): void
+    {
+        try {
+            $kind = str_starts_with($event, 'booking') ? 'booking'
+                : (str_starts_with($event, 'order') || str_starts_with($event, 'ledger') ? 'order'
+                : (str_starts_with($event, 'assess') ? 'assess' : 'system'));
+            $ref = (array)($data['ref'] ?? []);
+            Database::insert('member_notifications', [
+                'member_id' => $memberId, 'kind' => $kind, 'title' => str_take($title, 119, ''),
+                'body' => str_take((string)($data['body'] ?? json_encode($data['lines'] ?? [], JSON_UNESCAPED_UNICODE)), 499, ''),
+                'url' => (string)($data['inapp_url'] ?? '/member'),
+                'ref_type' => (string)($data['ref_type'] ?? ($ref['type'] ?? '')) ?: null,
+                'ref_id' => (string)($data['ref_id'] ?? ($ref['id'] ?? '')) ?: null,
+                'is_read' => 0, 'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $t) {
+            Logger::error('member-notify', 'inApp failed: ' . $t->getMessage());
         }
     }
 

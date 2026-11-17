@@ -138,6 +138,10 @@ CREATE TABLE `counselors` (
   `fee_to` decimal(10,2) NULL COMMENT '收费止',
   `fee_unit` varchar(20) NULL DEFAULT '50分钟',
   `languages` varchar(100) NULL,
+  `phone` varchar(30) NULL COMMENT '手机号（短信提醒收件）',
+  `fee_override` text NULL COMMENT '分时定价 JSON: [{weekday,slot,time_from,time_to,price_cents}]',
+  `on_leave` tinyint(1) NOT NULL DEFAULT 0 COMMENT '请假状态（1=暂停接单）',
+  `leave_note` varchar(200) NULL COMMENT '请假说明',
   `tags` varchar(255) NULL,
   `is_featured` tinyint(1) NOT NULL DEFAULT 0,
   `sort` int NOT NULL DEFAULT 0,
@@ -206,6 +210,9 @@ CREATE TABLE `bookings` (
   `status` varchar(20) NOT NULL DEFAULT 'pending' COMMENT 'pending/confirmed/rescheduled/completed/cancelled',
   `amount_cents` int unsigned NULL COMMENT '线上咨询应付金额（分；NULL=未定价）',
   `pay_status` varchar(12) NOT NULL DEFAULT 'unpaid' COMMENT 'unpaid/paid/free/refunded（面对面=free 线下付）',
+  `remind_sms_3h_at` datetime NULL COMMENT '前3小时短信已发送时间（防重）',
+  `remind_wx_seen_at` datetime NULL COMMENT '会员确认（进房/点开推送）时间',
+  `remind_sms_1h_at` datetime NULL COMMENT '未确认时前1小时短信已发时间（防重）',
   `admin_note` varchar(500) NULL,
   `source` varchar(30) NULL DEFAULT 'web',
   `ip` varchar(64) NULL,
@@ -510,6 +517,56 @@ CREATE TABLE `members` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 会员通知台账（v2.9.0：邮件/微信/中台 全通道投递记录，排查触达问题）
+-- 会员站内信（v2.14.0：预约/支付/套餐/系统等会员侧通知）
+CREATE TABLE `member_notifications` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `member_id` int unsigned NOT NULL,
+  `kind` varchar(16) NOT NULL DEFAULT 'booking' COMMENT 'booking/order/assess/system',
+  `title` varchar(120) NOT NULL,
+  `body` varchar(500) NULL,
+  `url` varchar(200) NULL COMMENT '站内跳转路径（/member/...）',
+  `ref_type` varchar(20) NULL,
+  `ref_id` varchar(20) NULL,
+  `is_read` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` datetime NULL,
+  PRIMARY KEY (`id`), KEY `k_member` (`member_id`,`is_read`), KEY `k_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 咨询师站内信（工作台消息：预约变动/小结提醒/系统）
+CREATE TABLE `counselor_notifications` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `counselor_id` int unsigned NOT NULL,
+  `kind` varchar(16) NOT NULL DEFAULT 'booking',
+  `title` varchar(120) NOT NULL,
+  `body` varchar(500) NULL,
+  `url` varchar(200) NULL,
+  `booking_id` int unsigned NULL,
+  `is_read` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` datetime NULL,
+  PRIMARY KEY (`id`), KEY `k_csl` (`counselor_id`,`is_read`), KEY `k_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 咨询师微信绑定（服务号 OpenID；wxhub-client/wxlogin 咨询师侧绑定写入）
+CREATE TABLE `counselor_notify_log` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `counselor_id` int unsigned NOT NULL,
+  `event` varchar(24) NOT NULL,
+  `channel` varchar(12) NOT NULL DEFAULT 'sms',
+  `status` varchar(10) NOT NULL DEFAULT 'ok',
+  `created_at` datetime NULL,
+  PRIMARY KEY (`id`), KEY `k_csl` (`counselor_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `counselor_wx` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `counselor_id` int unsigned NOT NULL,
+  `openid` varchar(64) NOT NULL,
+  `unionid` varchar(64) NULL,
+  `nickname` varchar(80) NULL,
+  `created_at` datetime NULL,
+  PRIMARY KEY (`id`), UNIQUE KEY `uk_openid` (`openid`), KEY `k_counselor` (`counselor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE `member_notify_log` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `member_id` int unsigned NOT NULL,

@@ -30,6 +30,12 @@ class Message
 
     public function store(Request $req, array $p): void
     {
+        // v2.14.0 提案：留言可选要求登录（message.require_member 默认 0 关闭）
+        $mNow = \app\Services\MemberService::current();
+        if (!$mNow && (bool)setting('message.require_member', '0')) {
+            \app\Core\Session::flash('error', '留言请先登录会员账号，咨询留言将在会员中心跟进回复');
+            \app\Core\ResponseRedirect('/member/login');
+        }
         Csrf::guard();
         StatsService::track();
         if (!RateLimiter::hit('message', $req->ip(), 5, 3600)) {

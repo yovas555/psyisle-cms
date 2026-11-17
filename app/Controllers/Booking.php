@@ -21,6 +21,13 @@ class Booking
     public function create(Request $req, array $p): void
     {
         StatsService::track();
+        // v2.14.0 提案：预约可选要求登录会员（booking.require_member 默认 0 关闭，等用户拍板）
+        $mCur = \app\Services\MemberService::current();
+        if (!$mCur && (bool)setting('booking.require_member', '0')) {
+            \app\Core\Session::set('member_return', '/booking');
+            \app\Core\Session::flash('error', '预约请先登录会员账号（预约与提醒、支付均在会员中心管理）');
+            \app\Core\ResponseRedirect('/member/login');
+        }
         $services = Database::fetchAll('SELECT id, name, price_from, price_to FROM services WHERE status=1 ORDER BY sort');
         $counselors = Database::fetchAll('SELECT id, name, title FROM counselors WHERE status=1 ORDER BY sort');
         $preService = (int)$req->get('service', 0);
@@ -53,6 +60,9 @@ class Booking
             \app\Core\ResponseRedirect('/booking');
         }
         $data = $req->posts();
+        // v2.14.0：会员预约手机号锁定为登录会员本人
+        $mCur2 = \app\Services\MemberService::current();
+        if ($mCur2) { $data['phone'] = (string)$mCur2['phone']; $data['name'] = (string)($mCur2['name'] ?: $data['name']); }
         $v = new Validator($data, [
             'name' => 'required|maxlen:40|safe_text',
             'phone' => 'required|phone',
@@ -175,6 +185,26 @@ class Booking
             } catch (\Throwable $t) {
                 Logger::error('booking-mail', $t->getMessage());
             }
+        }
+        // v2.14.0：会员三通道（站内/微信/短信）+ 咨询师三通道
+        $notifyData = [
+            'title' => '预约已提交：' . $code,
+            'body' => ($data['prefer_date'] ?: '待定') . ' ' . ($data['prefer_slot'] ?? '') . ' · ' . ($data['method'] ?? ''),
+            'lines' => ['查询码' => $code, '日期' => $data['prefer_date'] ?: '不限', '时段' => $data['prefer_slot'] ?? '', '方式' => $data['method'] ?? ''],
+            'inapp_url' => '/member/bookings', 'ref_type' => 'booking', 'ref_id' => $code,
+            'booking' => ['id' => $id, 'code' => $code, 'phone' => (string)$data['phone'], 'name' => (string)$data['name'],
+                'prefer_date' => $data['prefer_date'], 'prefer_slot' => $data['prefer_slot'], 'counselor_id' => (int)($data['counselor_id'] ?? 0)],
+        ];
+        if ($mCur2) {
+            \app\Services\MemberNotifyService::push((int)$mCur2['id'], 'booking_new', $notifyData);
+        }
+        if ((int)($data['counselor_id'] ?? 0) > 0) {
+            \app\Services\CounselorNotifyService::push((int)$data['counselor_id'], 'booking_new', [
+                'title' => '新预约：' . (string)$data['name'] . '（' . mask_phone((string)$data['phone']) . '）',
+                'body' => ($data['prefer_date'] ?: '待定') . ' ' . ($data['prefer_slot'] ?? '') . ' · ' . ($data['method'] ?? ''),
+                'url' => '/admin/counselor-home/bookings', 'booking_id' => $id,
+                'booking' => ['id' => $id, 'code' => $code, 'phone' => (string)$data['phone']],
+            ]);
         }
         Session::set('booking_created', [
             'code' => $code, 'name' => (string)$data['name'],

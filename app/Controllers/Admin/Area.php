@@ -17,7 +17,7 @@ class Area extends Base
 
     private const DOMAINS = ['home', 'jiaowu', 'member', 'org', 'content', 'ops', 'wechat', 'system'];
     private const LABELS = [
-        'home' => '首页总览', 'jiaowu' => '教务总览', 'member' => '会员总览', 'org' => '机构总览',
+        'home' => '首页总览', 'jiaowu' => '事务总览', 'member' => '会员总览', 'org' => '机构总览',
         'content' => '内容总览', 'ops' => '运营总览', 'wechat' => '微信生态总览', 'system' => '系统总览',
     ];
 

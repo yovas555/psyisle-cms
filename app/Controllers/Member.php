@@ -215,6 +215,25 @@ class Member
     }
 
     /** 重置密码（从邮件链接进入） */
+    /** v2.14.0：短信找回（发送验证码） */
+    public function forgotPasswordSms(Request $req, array $p): void
+    {
+        Csrf::guard();
+        header('Content-Type: application/json; charset=utf-8');
+        [$ok, $msg] = \app\Services\MemberService::sendPasswordResetSms((string)$req->post('phone', ''));
+        json_out(['ok' => $ok, 'message' => $msg]);
+    }
+
+    /** v2.14.0：短信重置密码（校验验证码+改密） */
+    public function resetPasswordSms(Request $req, array $p): void
+    {
+        Csrf::guard();
+        [$ok, $msg] = \app\Services\MemberService::resetPasswordBySms(
+            (string)$req->post('phone', ''), (string)$req->post('sms_code', ''), (string)$req->post('new_password', ''));
+        \app\Core\Session::flash($ok ? 'success' : 'error', $msg);
+        \app\Core\ResponseRedirect($ok ? '/member/login' : '/member/forgot-password');
+    }
+
     public function resetPassword(Request $req, array $p): void
     {
         StatsService::track();

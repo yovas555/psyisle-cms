@@ -85,3 +85,10 @@
     <?php endif; ?>
   </div>
 </section>
+
+    <section class="cp-section" style="text-align:center;padding:30px 0">
+      <h2 style="margin-bottom:16px">开始预约</h2>
+      <p class="muted" style="margin-bottom:18px">从 <?= e($c['name']) ?> 的可约时段中直接选择，预约成功后自动发送微信与短信提醒。</p>
+      <a class="btn btn-primary btn-lg" href="<?= url('/booking?counselor=' . (int)$c['id'] . '&source=counselor') ?>" style="padding:14px 40px;font-size:16px">立即预约 · 从可约时段中选择</a>
+      <p class="hint" style="margin-top:12px">预约需登录会员账号；登录后可在线支付并收到微信/短信提醒。</p>
+    </section>

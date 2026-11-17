@@ -90,7 +90,108 @@ class Cron
     {
         if (!$this->guard()) { http_response_code(403); echo 'forbidden'; exit; }
         $done = \app\Core\PluginManager::runCron('minutely');
-        echo json_encode(['ok' => true, 'jobs' => $done], JSON_UNESCAPED_UNICODE);
+        self::sessionReminders(); // v2.14.0：咨询提醒引擎（3h 短信 / 10min RTC 微信 / 1h 未确认短信）
+        echo json_encode(['ok' => true, 'jobs' => $done, 'reminders' => true], JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * v2.14.0 咨询提醒引擎（每分钟 cron）：
+     *  - 前 3 小时：短信提醒（会员+咨询师，防重 remind_sms_3h_at）
+     *  - 前 10 分钟：服务号微信推送（method=视频，含开启时间与进房路径；未确认）
+     *  - 前 1 小时：若会员未确认（remind_wx_seen_at 为空）→ 短信补推（防重 remind_sms_1h_at）
+     */
+    private static function sessionReminders(): void
+    {
+        $smsReady = class_exists(\plugins\smsnotify\Plugin::class) && (bool)setting('sms.enabled', '0')
+            && trim((string)setting('sms.template_code', '')) !== '';
+        $rows = Database::fetchAll(
+            "SELECT b.*, c.phone AS csl_phone, c.name AS cname, m.id mid, m.openid
+             FROM bookings b
+             LEFT JOIN counselors c ON c.id=b.counselor_id
+             LEFT JOIN members m ON m.phone=b.phone AND m.status='active'
+             WHERE b.status='confirmed' AND b.prefer_date=CURDATE()
+               AND (b.remind_sms_3h_at IS NULL OR b.remind_sms_1h_at IS NULL OR b.remind_wx_seen_at IS NULL)");
+        foreach ($rows as $b) {
+            $slot = (string)$b['prefer_slot'];
+            if (!preg_match('/^(\d{1,2}):(\d{2})/', $slot, $mm)) continue;
+            $startTs = strtotime((string)$b['prefer_date'] . ' ' . sprintf('%02d:%02d', (int)$mm[1], (int)$mm[2]));
+            if ($startTs === false) continue;
+            $diff = $startTs - time();
+            $bid = (int)$b['id'];
+            $when = date('H:i', $startTs);
+            $mid = (int)($b['mid'] ?? 0);
+            // ① 前 3 小时短信（会员+咨询师）
+            if ($diff > 0 && $diff <= 3 * 3600 && $b['remind_sms_3h_at'] === null) {
+                Database::run('UPDATE bookings SET remind_sms_3h_at=NOW() WHERE id=?', [$bid]);
+                if ($smsReady) {
+                    $site = (string)setting('site.name', '');
+                    $label = '咨询即将开始';
+                    $param = json_encode(['site' => str_take($site, 12, ''), 'event' => str_take($label . '：' . (string)$b['code'], 20, ''), 'time' => $when], JSON_UNESCAPED_UNICODE);
+                    $phones = [];
+                    if ($mid > 0) $phones[] = (string)$b['phone'];
+                    if (!empty($b['csl_phone']) && preg_match('/^1[3-9]\d{9}$/', (string)$b['csl_phone'])) $phones[] = (string)$b['csl_phone'];
+                    foreach ($phones as $ph) {
+                        \plugins\smsnotify\Plugin::sendMemberSms($ph, ['site' => str_take($site, 12, ''), 'event' => str_take($label, 20, ''), 'time' => $when]);
+                    }
+                }
+            }
+            // ② 前 10 分钟：视频咨询服务号微信推送（移动端进房路径）
+            $isVideo = mb_stripos((string)$b['method'], '视频') !== false;
+            if ($isVideo && $diff > 0 && $diff <= 10 * 60 && $mid > 0 && $b['remind_wx_seen_at'] === null) {
+                \app\Services\MemberNotifyService::push($mid, 'session_room_open', [
+                    'title' => '咨询室已开启（' . $when . '）',
+                    'body' => '请进入咨询室准备开始视频咨询（移动端进入）',
+                    'lines' => ['咨询方式' => '视频咨询', '开始时间' => $when, '进入路径' => '会员中心→我的预约→进入咨询室'],
+                    'inapp_url' => '/plugin/rtc-pro/room/' . $bid,
+                    'ref_type' => 'booking', 'ref_id' => (string)$b['code'],
+                ]);
+            }
+            // ③ 前 1 小时：未确认（未进房）→ 短信补推（会员+咨询师）
+            if ($diff > 0 && $diff <= 3600 && $b['remind_wx_seen_at'] === null && $b['remind_sms_1h_at'] === null) {
+                Database::run('UPDATE bookings SET remind_sms_1h_at=NOW() WHERE id=?', [$bid]);
+                if ($smsReady) {
+                    $site = (string)setting('site.name', '');
+                    foreach (array_filter([(string)$b['phone'], (string)($b['csl_phone'] ?? '')]) as $ph) {
+                        if (!preg_match('/^1[3-9]\d{9}$/', $ph)) continue;
+                        \plugins\smsnotify\Plugin::sendMemberSms($ph, ['site' => str_take($site, 12, ''), 'event' => str_take('咨询1小时后开始', 20, ''), 'time' => $when]);
+                    }
+                }
+            }
+        }
+    }
+
+    /** v2.14.0：每日 8:00 当日咨询微信汇总推送（会员+咨询师） */
+    public function morningPush(Request $req, array $p): void
+    {
+        if (!$this->guard()) { http_response_code(403); echo 'forbidden'; exit; }
+        $rows = Database::fetchAll(
+            "SELECT b.*, m.id mid, c.phone csl_phone FROM bookings b
+             LEFT JOIN members m ON m.phone=b.phone AND m.status='active'
+             LEFT JOIN counselors c ON c.id=b.counselor_id
+             WHERE b.status='confirmed' AND b.prefer_date=CURDATE() ORDER BY b.prefer_slot");
+        $pushed = 0;
+        foreach ($rows as $b) {
+            $when = (string)$b['prefer_slot'];
+            $mid = (int)($b['mid'] ?? 0);
+            if ($mid > 0) {
+                \app\Services\MemberNotifyService::push($mid, 'booking_remind', [
+                    'title' => '今日咨询提醒（' . $when . '）',
+                    'body' => (string)$b['method'] . ' · 咨询师 ' . (string)($b['cname'] ?? '未指定'),
+                    'lines' => ['时间' => '今天 ' . $when, '方式' => (string)$b['method'], '咨询师' => (string)($b['cname'] ?? '')],
+                    'inapp_url' => mb_stripos((string)$b['method'], '视频') !== false ? '/plugin/rtc-pro/room/' . (int)$b['id'] : '/member/bookings',
+                    'ref_type' => 'booking', 'ref_id' => (string)$b['code'],
+                ]);
+            }
+            if ((int)($b['counselor_id'] ?? 0) > 0) {
+                \app\Services\CounselorNotifyService::push((int)$b['counselor_id'], 'session_remind', [
+                    'title' => '今日咨询：' . (string)$b['name'] . '（' . $when . '）',
+                    'body' => (string)$b['method'] . ' · ' . mask_phone((string)$b['phone']),
+                    'url' => '/admin/counselor-home/bookings', 'booking_id' => (int)$b['id'],
+                ]);
+            }
+            $pushed++;
+        }
+        echo json_encode(['ok' => true, 'pushed' => $pushed], JSON_UNESCAPED_UNICODE);
     }
 
     public function upgradeCheck(Request $req, array $p): void

@@ -47,4 +47,12 @@
       <button class="btn btn-danger" type="submit">删除预约</button>
     </form>
   </div>
+
+<div class="toolbar" style="margin-top:14px">
+  <form method="post" action="/admin/bookings/send-sms/<?= (int)$b['id'] ?? 0 ?>" style="display:inline">
+    <?= csrf_field() ?>
+    <button class="btn btn-ghost" type="submit">📱 手动发送短信提醒</button>
+  </form>
+  <span class="hint">兜底推送：自动微信/短信失败时手动触发（会员+咨询师手机号）</span>
+</div>
 </div>

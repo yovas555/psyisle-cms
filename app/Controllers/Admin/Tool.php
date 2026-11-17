@@ -21,6 +21,64 @@ class Tool extends Base
     protected string $title = '运维工具';
     protected string $baseSeg = 'tools';
 
+    /** v2.16.0：一键清除演示内容 */
+    
+    /** 演示内容清除向导页 */
+    public function purgeDemo(Request $req, array $p): void
+    {
+        $demoMode = (bool)setting('site.demo_mode', '0');
+        // 未来日期的 published 活动置顶标红
+        $futureEvents = Database::fetchAll(
+            "SELECT id, title, event_date AS start_time FROM events WHERE status='published' AND event_date > NOW() ORDER BY event_date LIMIT 10");
+        $demoArticles = Database::fetchAll(
+            "SELECT id, slug, title FROM articles WHERE slug IN ('welcome','about-us','hello-world') OR source='demo' LIMIT 10");
+        $this->view('tool/purge-demo', [
+            'title' => '清除演示内容', 'demoMode' => $demoMode,
+            'futureEvents' => $futureEvents, 'demoArticles' => $demoArticles,
+        ]);
+    }
+
+    /** v2.16.0：反馈上报页 */
+    public function feedback(Request $req, array $p): void
+    {
+        $configured = \app\Services\FeedbackClient::configured();
+        $lastResult = \app\Core\Cache::get('feedback_last_result');
+        $this->view('tool/feedback', ['title' => '上报问题/需求', 'configured' => $configured, 'lastResult' => $lastResult]);
+    }
+
+    /** 提交反馈 */
+    public function submitFeedback(Request $req, array $p): void
+    {
+        Csrf::guard();
+        [$ok, $msg] = \app\Services\FeedbackClient::submit(
+            (string)$req->post('type', 'bug'),
+            str_take(trim((string)$req->post('title', '')), 80, ''),
+            str_take(trim((string)$req->post('body', '')), 500, ''),
+            (string)$req->post('severity', 'P3'),
+            (string)$req->post('area', 'general')
+        );
+        Session::flash($ok ? 'success' : 'error', $msg);
+        \app\Core\ResponseRedirect('/admin/tools/feedback');
+    }
+
+    /** v2.16.0：克隆/换身份向导 */
+    public function cloneWizard(Request $req, array $p): void
+    {
+        $scan = \app\Services\CloneDetector::scan();
+        $this->view('tool/clone-wizard', ['title' => '克隆/换身份向导', 'scan' => $scan]);
+    }
+
+    /** 一键重生成安全键 */
+    public function cloneRegen(Request $req, array $p): void
+    {
+        Csrf::guard();
+        $skey = (string)$req->post('skey', '');
+        [$ok, $msg] = \app\Services\CloneDetector::regenerate($skey);
+        $this->audit('Tool.cloneRegen', 'settings', null, ['skey' => $skey]);
+        Session::flash($ok ? 'success' : 'error', $msg);
+        \app\Core\ResponseRedirect('/admin/tools/clone-wizard');
+    }
+
     public function index(Request $req, array $p): void
     {
         $backups = [];

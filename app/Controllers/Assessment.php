@@ -47,6 +47,12 @@ class Assessment
     {
         Csrf::guard();
         StatsService::track();
+        // v2.14.0 提案：测评可选要求登录（assess.require_member 默认 0 关闭）
+        $mNow = \app\Services\MemberService::current();
+        if (!$mNow && (bool)setting('assess.require_member', '0')) {
+            \app\Core\Session::flash('error', '测评请先登录会员账号，结果将存档到「我的测评」');
+            \app\Core\ResponseRedirect('/member/login');
+        }
         if (!RateLimiter::hit('assessment', $req->ip(), 10, 600)) {
             \app\Core\Session::flash('error', '提交过于频繁，请稍后再试');
             \app\Core\ResponseRedirect('/assessment');
@@ -93,6 +99,16 @@ class Assessment
             'report_token' => $reportToken,
             'created_at' => date('Y-m-d H:i:s'),
         ]);
+        // v2.14.0：会员测评完成 → 站内信/微信通知（含报告链接）
+        $memberNow = \app\Services\MemberService::current();
+        if ($memberNow) {
+            \app\Services\MemberNotifyService::push((int)$memberNow['id'], 'assess_report', [
+                'title' => '测评已完成：' . $a['name'],
+                'body' => '得分 ' . $score . ' · ' . $level,
+                'lines' => ['量表' => $a['name'], '得分' => (string)$score, '分级' => $level],
+                'inapp_url' => '/member/assessments', 'ref_type' => 'assessment', 'ref_id' => (int)$a['id'],
+            ]);
+        }
         $meta = SeoService::meta($a['name'] . '结果', '', '', url('/assessment/' . $a['slug']));
         View::render('assessment/result', [
             'meta' => $meta,
