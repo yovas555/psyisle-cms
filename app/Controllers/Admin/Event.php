@@ -42,6 +42,24 @@ class Event extends Base
         'seo_description' => ['SEO 描述', 'textarea', ['rows' => 2]],
     ];
 
+    /** 列表补充报名数（Base 的 SELECT * 不含统计列；避免视图读不到 reg 键） */
+    protected function listRows(string $where, array $params, int $size, int $offset): array
+    {
+        $rows = parent::listRows($where, $params, $size, $offset);
+        if (!$rows) { return $rows; }
+        $ids = array_map('intval', array_column($rows, 'id'));
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $counts = Database::fetchAll(
+            "SELECT event_id, COUNT(*) c FROM event_registrations WHERE status<>'cancelled' AND event_id IN ($in) GROUP BY event_id",
+            $ids
+        );
+        $map = [];
+        foreach ($counts as $c) { $map[(int)$c['event_id']] = (int)$c['c']; }
+        foreach ($rows as &$r) { $r['reg'] = $map[(int)$r['id']] ?? 0; }
+        unset($r);
+        return $rows;
+    }
+
     protected function beforeSave(array &$data, ?int $id, string $mode): void
     {
         if (empty($data['slug'])) {

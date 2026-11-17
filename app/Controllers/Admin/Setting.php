@@ -26,6 +26,9 @@ class Setting extends Base
         $allowed = [
             'site.name' => ['site_name', 'general'],
             'site.slogan' => ['site_slogan', 'general'],
+            'site.brand_mark' => ['site_brand_mark', 'general'],
+        'site.logo_type' => ['site_logo_type', 'general'],
+        'site.logo_custom' => ['site_logo_custom', 'general'],
             'site.hero_title' => ['site_hero_title', 'general'],
             'site.hero_sub' => ['site_hero_sub', 'general'],
             'site.stat_years' => ['site_stat_years', 'general'],

@@ -6,28 +6,27 @@
  */
 $seg_guides = $seg_guides ?? [];
 $render = function ($row, $col, $type) {
+    $val = $row[$col] ?? null; // 列表查询未必为每个声明列都取数（如活动 reg 统计），缺键按空值渲染
     switch ($type) {
         case 'publish_status':
-            return $row[$col] === 'published' ? '<b class="ok">已发布</b>'
-                : ($row[$col] === 'scheduled' ? '<b style="color:#7c3aed">定时</b>'
+            return $val === 'published' ? '<b class="ok">已发布</b>'
+                : ($val === 'scheduled' ? '<b style="color:#7c3aed">定时</b>'
                 : '<b class="draft">草稿</b>');
-        case 'datetime': return e($row[$col] ? dt((string)$row[$col]) : '—');
-        case 'number':   return (string)(int)$row[$col];
-        case 'yesno':    return ((int)$row[$col]) ? '<b class="ok">是</b>' : '<span class="muted">否</span>';
-        case 'publish_status':
-            return $row[$col] === 'published' ? '<b class="ok">已发布</b>' : '<b class="draft">草稿</b>';
+        case 'datetime': return e($val ? dt((string)$val) : '—');
+        case 'number':   return (string)(int)$val;
+        case 'yesno':    return ((int)$val) ? '<b class="ok">是</b>' : '<span class="muted">否</span>';
         case 'image_cell':
-            return $row[$col] ? '<img src="' . e($row[$col]) . '" class="thumb" alt="">' : '—';
+            return $val ? '<img src="' . e((string)$val) . '" class="thumb" alt="">' : '—';
         case 'category':
             $name = '';
-            if ($row[$col]) {
-                $name = (string)app\Core\Database::value('SELECT name FROM categories WHERE id=?', [$row[$col]]);
+            if ($val) {
+                $name = (string)app\Core\Database::value('SELECT name FROM categories WHERE id=?', [$val]);
             }
             return e($name ?: '—');
         case 'role':
-            $name = (string)app\Core\Database::value('SELECT name FROM roles WHERE id=?', [$row[$col]]);
-            return e($name ?: ('#' . $row[$col]));
-        default: return e(str_take((string)$row[$col], 40, '…'));
+            $name = (string)app\Core\Database::value('SELECT name FROM roles WHERE id=?', [$val]);
+            return e($name ?: ('#' . $val));
+        default: return e(str_take((string)$val, 40, '…'));
     }
 };
 $editBase = '/admin/' . $baseSeg;

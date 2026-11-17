@@ -160,10 +160,7 @@ class Base
         $size = 15;
         $offset = ($page - 1) * $size;
         $total = Database::count($this->table, $where, $params);
-        $rows = Database::fetchAll(
-            "SELECT * FROM `{$this->table}` WHERE $where ORDER BY {$this->orderBy} LIMIT $size OFFSET $offset",
-            $params
-        );
+        $rows = $this->listRows($where, $params, $size, $offset);
         $this->view('crud/list', [
             'rows' => $rows,
             'total' => $total,
@@ -173,6 +170,15 @@ class Base
             'kw' => $kw,
             'baseSeg' => $this->baseSeg ?? preg_replace('/^Admin\\\\/', '', static::class),
         ]);
+    }
+
+    /** 列表查询（子类可覆盖以补充派生列，如活动报名数） */
+    protected function listRows(string $where, array $params, int $size, int $offset): array
+    {
+        return Database::fetchAll(
+            "SELECT * FROM `{$this->table}` WHERE $where ORDER BY {$this->orderBy} LIMIT $size OFFSET $offset",
+            $params
+        );
     }
 
     public function create(Request $req, array $p): void

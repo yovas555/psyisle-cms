@@ -26,7 +26,7 @@ function seed(PDO $pdo, string $siteName, array $admin): void
         ['site.slogan', '专业 · 保密 · 温暖'],
         ['site.hero_title', '让每一次倾诉，都被温柔以待'],
         ['site.hero_sub', '专业 · 保密 · 温暖 —— 我们在这里，陪你一起面对'],
-        ['site.stat_years', '8'], ['site.stat_hours', '20000'], ['site.stat_clients', '3000'],
+        ['site.stat_years', ''], ['site.stat_hours', ''], ['site.stat_clients', ''],
         ['seo.description', $siteName . '：提供专业一对一心理咨询，涵盖情绪困扰、亲子关系、职场压力等方向，严格保密，多形式灵活预约。'],
         ['seo.keywords', '心理咨询,心理咨询师,情绪困扰,亲子关系,焦虑抑郁'],
         ['notify.mask_phone', '1'],

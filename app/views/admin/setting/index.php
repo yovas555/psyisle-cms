@@ -22,8 +22,25 @@
       <h2>基本信息</h2>
       <div class="form-grid">
         <label class="field"><span class="label">站点名称 <em>*</em></span><input type="text" name="site.name" value="<?= $v('site.name') ?>" required></label>
+        <label class="field"><span class="label">品牌徽章文字</span><input type="text" name="site.brand_mark" maxlength="3" value="<?= $v('site.brand_mark') ?>" placeholder="留空取站名首字"></label>
+        <label class="field"><span class="label">站点 LOGO（徽章图标）</span>
+          <select name="site.logo_type">
+            <?php $curLogo = $v('site.logo_type') ?: 'text'; ?>
+            <option value="text" <?= $curLogo === 'text' ? 'selected' : '' ?>>文字徽章（默认）</option>
+            <option value="heart-teal" <?= $curLogo === 'heart-teal' ? 'selected' : '' ?>>心形 · 青色</option>
+            <option value="heart-warm" <?= $curLogo === 'heart-warm' ? 'selected' : '' ?>>心形 · 暖粉</option>
+            <option value="psych-brain" <?= $curLogo === 'psych-brain' ? 'selected' : '' ?>>心理 · 大脑</option>
+            <option value="counsel-chat" <?= $curLogo === 'counsel-chat' ? 'selected' : '' ?>>咨询 · 对话</option>
+            <option value="custom" <?= $curLogo === 'custom' ? 'selected' : '' ?>>自定义上传</option>
+          </select>
+          <span class="hint">选择后自动适配 40×40 圆形徽章大小</span>
+        </label>
+        <label class="field"><span class="label">自定义 LOGO 图片 URL（选「自定义上传」时填写）</span>
+          <input type="text" name="site.logo_custom" value="<?= $v('site.logo_custom') ?>" placeholder="/uploads/logo/custom.svg 或 https://…/logo.png">
+          <span class="hint">支持 SVG/PNG，建议正方形；自动裁圆</span>
+        </label>
         <label class="field"><span class="label">站点口号</span><input type="text" name="site.slogan" value="<?= $v('site.slogan') ?>"></label>
-        <label class="field"><span class="label">主域名（如 www.example.com）</span><input type="text" name="site.domain" value="<?= $v('site.domain') ?>" placeholder="用于 canonical / sitemap，留空自动"></label>
+        <label class="field"><span class="label">主域名（如 ww.123xl.cn）</span><input type="text" name="site.domain" value="<?= $v('site.domain') ?>" placeholder="用于 canonical / sitemap，留空自动"></label>
         <label class="field"><span class="label">ICP 备案号</span><input type="text" name="site.icp" value="<?= $v('site.icp') ?>" placeholder="如：粤ICP备2026xxxxxx号"></label>
         <label class="field"><span class="label">公安备案号</span><input type="text" name="site.police_icp" value="<?= $v('site.police_icp') ?>"></label>
         <label class="field">
@@ -62,9 +79,10 @@
       <div class="form-grid">
         <label class="field"><span class="label">首页大标题</span><input type="text" name="site.hero_title" value="<?= $v('site.hero_title', '让每一次倾诉，都被温柔以待') ?>"></label>
         <label class="field"><span class="label">首页副标题</span><input type="text" name="site.hero_sub" value="<?= $v('site.hero_sub', '专业 · 保密 · 温暖 —— 我们在这里，陪你一起面对') ?>"></label>
-        <label class="field"><span class="label">统计：从业年限</span><input type="text" name="site.stat_years" value="<?= $v('site.stat_years', '8') ?>"></label>
-        <label class="field"><span class="label">统计：累计咨询时长</span><input type="text" name="site.stat_hours" value="<?= $v('site.stat_hours', '20000') ?>"></label>
-        <label class="field"><span class="label">统计：服务会员</span><input type="text" name="site.stat_clients" value="<?= $v('site.stat_clients', '3000') ?>"></label>
+        <label class="field"><span class="label">统计：从业年限</span><input type="text" name="site.stat_years" value="<?= $v('site.stat_years') ?>"></label>
+        <label class="field"><span class="label">统计：累计咨询时长</span><input type="text" name="site.stat_hours" value="<?= $v('site.stat_hours') ?>"></label>
+        <label class="field"><span class="label">统计：服务会员</span><input type="text" name="site.stat_clients" value="<?= $v('site.stat_clients') ?>"></label>
+        <p class="hint" style="grid-column:1/-1;margin:0">统计卡留空或填 0 时不显示；请只填写机构可证实的数字。</p>
       </div>
     </div>
   </div>
@@ -190,7 +208,7 @@
           <span class="hint">仅办公室固定 IP 场景使用；填写后名单外 IP 一律 403</span>
         </label>
         <label class="field"><span class="label">发行方激活地址（远程激活，留空=离线模式）</span>
-          <input type="text" name="license.activate_url" value="<?= $v('license.activate_url') ?>" placeholder="如 https://activate.example.com">
+          <input type="text" name="license.activate_url" value="<?= $v('license.activate_url') ?>" placeholder="如 https://api.123xl.cn/psycms">
         </label>
         <label class="field switch-field"><span class="label">后台登录成功邮件通知</span>
           <label class="switch"><input type="checkbox" name="notify.login_notice" value="1" <?= setting('notify.login_notice') ? 'checked' : '' ?>><i></i></label>

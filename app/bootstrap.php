@@ -27,7 +27,7 @@ define('CONFIG_PATH', ROOT . '/config');
 define('STORAGE', ROOT . '/storage');
 define('UPLOAD_PATH', PUBLIC_PATH . '/uploads');
 define('THEME_PATH', APP . '/views/frontend');
-define('CMS_VERSION', '2.13.0');
+define('CMS_VERSION', '2.13.1');
 define('CMS_NAME', '一二三心理咨询网站系统');
 define('CMS_SHORT', '一二三心理');
 define('CMS_VENDOR_URL', 'https://cms.123xl.cn');
@@ -101,6 +101,8 @@ set_exception_handler(function ($e) {
 });
 
 set_error_handler(function ($no, $msg, $file, $line) {
+    // 尊重 @ 抑制与 error_reporting 级别：@unlink 等竞态警告不应进日志
+    if (!(error_reporting() & $no)) { return false; }
     if (!($no & (E_WARNING | E_NOTICE | E_USER_WARNING | E_USER_NOTICE | E_DEPRECATED))) { return false; }
     app\Core\Logger::error('PHP', $msg, ['file' => $file, 'line' => $line]);
     return true;

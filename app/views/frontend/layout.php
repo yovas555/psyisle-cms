@@ -16,6 +16,24 @@ try {
     $headerNavs = app\Core\Database::fetchAll("SELECT title, url FROM navigations WHERE location='header' AND status=1 ORDER BY sort LIMIT 10");
     $footerNavs = app\Core\Database::fetchAll("SELECT title, url FROM navigations WHERE location='footer' AND status=1 ORDER BY sort LIMIT 10");
 } catch (\Throwable $t) {}
+// 品牌徽章：优先后台自定义，留空取站名首字（克隆站不再继承源站「123」）
+$brandMark = trim((string)setting('site.brand_mark', ''));
+if ($brandMark === '') { $brandMark = $siteName !== '' ? mb_substr($siteName, 0, 1) : '心'; }
+$brandMark = mb_substr($brandMark, 0, 3);
+$brandMarkSm = mb_strlen($brandMark) >= 3;
+// 页脚法律链接：导航表已有同路径就不重复追加
+$footerPaths = [];
+foreach ($footerNavs as $n) {
+    $path = (string)parse_url((string)$n['url'], PHP_URL_PATH);
+    if ($path === '') { $path = (string)$n['url']; }
+    if ($path !== '' && $path[0] !== '/') { $path = '/' . $path; }
+    $footerPaths[] = $path;
+}
+$legalLinks = [
+    ['/p/privacy', '隐私政策'],
+    ['/p/consent', '知情同意'],
+    ['/p/crisis', '危机干预资源'],
+];
 // 底部 CMS 标识：无「去版权」权限强制显示；专业版可在系统设置中关闭
 $brandShown = \app\Services\LicenseService::feature('remove_brand')
     ? (bool)setting('site.powered_by', '1')
@@ -61,7 +79,16 @@ $brandShown = \app\Services\LicenseService::feature('remove_brand')
 <header class="site-header">
   <div class="container header-inner">
     <a class="brand" href="<?= url('/') ?>">
-      <span class="brand-mark">123</span>
+      <?php $logoType = (string)setting('site.logo_type', 'text');
+            $logoCustom = trim((string)setting('site.logo_custom', ''));
+      ?>
+      <?php if ($logoType === 'custom' && $logoCustom !== ''): ?>
+      <span class="brand-mark brand-mark-img"><img src="<?= e($logoCustom) ?>" alt="<?= e($siteName) ?>" style="width:100%;height:100%;border-radius:50%;object-fit:cover"></span>
+      <?php elseif (in_array($logoType, ['heart-teal','heart-warm','psych-brain','counsel-chat'], true)): ?>
+      <span class="brand-mark brand-mark-img"><img src="<?= url('/assets/logo/' . $logoType . '.svg') ?>" alt="<?= e($siteName) ?>" style="width:100%;height:100%;border-radius:50%;object-fit:cover"></span>
+      <?php else: ?>
+      <span class="brand-mark<?= $brandMarkSm ? ' brand-mark-sm' : '' ?>"><?= e($brandMark) ?></span>
+      <?php endif; ?>
       <span class="brand-name"><?= e($siteName) ?></span>
       <?php if (setting('site.slogan')): ?><span class="brand-slogan"><?= e(setting('site.slogan')) ?></span><?php endif; ?>
     </a>
@@ -103,14 +130,14 @@ $brandShown = \app\Services\LicenseService::feature('remove_brand')
   <div class="container footer-cols">
     <div class="footer-brand">
       <p class="brand-name"><?= e($siteName) ?></p>
-      <p class="footer-desc"><?= e(setting('seo.description', '')) ?></p>
+      <p class="footer-desc"><?= e(setting('site.footer_about', setting('seo.description', ''))) ?></p>
     </div>
     <div class="footer-links">
       <p class="footer-h">快速导航</p>
       <?php foreach ($footerNavs as $n): ?><a href="<?= e($n['url']) ?>"><?= e($n['title']) ?></a><?php endforeach; ?>
-      <a href="<?= url('/p/privacy') ?>">隐私政策</a>
-      <a href="<?= url('/p/consent') ?>">知情同意</a>
-      <a href="<?= url('/p/crisis') ?>">危机干预资源</a>
+      <?php foreach ($legalLinks as [$path, $label]): if (!in_array($path, $footerPaths, true)): ?>
+      <a href="<?= url($path) ?>"><?= e($label) ?></a>
+      <?php endif; endforeach; ?>
     </div>
     <div class="footer-contact">
       <p class="footer-h">联系我们</p>

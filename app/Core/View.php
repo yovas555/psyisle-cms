@@ -6,9 +6,9 @@ namespace app\Core;
 class View
 {
     /** 渲染前台模板（含布局） */
-    public static function render(string $template, array $data = [], ?string $layout = 'layout'): void
+    public static function render(string $template, array $vars = [], ?string $layout = 'layout'): void
     {
-        extract($data, EXTR_SKIP);
+        extract($vars, EXTR_SKIP);
         $viewFile = THEME_PATH . '/' . $template . '.php';
         if (!is_file($viewFile)) {
             http_response_code(500);
@@ -32,9 +32,9 @@ class View
     }
 
     /** 渲染后台模板（$raw=true 时直接输出，用于登录页等独立布局，防止泄露后台结构） */
-    public static function admin(string $template, array $data = [], bool $raw = false): void
+    public static function admin(string $template, array $vars = [], bool $raw = false): void
     {
-        extract($data, EXTR_SKIP);
+        extract($vars, EXTR_SKIP);
         $file = APP . '/views/admin/' . $template . '.php';
         if (!is_file($file)) { http_response_code(500); echo '后台视图缺失: ' . e($template); exit; }
         ob_start();
@@ -48,9 +48,9 @@ class View
     }
 
     /** 渲染字符串（邮件等） */
-    public static function str(string $file, array $data = []): string
+    public static function str(string $file, array $vars = []): string
     {
-        extract($data, EXTR_SKIP);
+        extract($vars, EXTR_SKIP);
         ob_start();
         include $file;
         return (string)ob_get_clean();

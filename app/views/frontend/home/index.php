@@ -3,6 +3,11 @@
 $schemaList = [];
 if (!empty($orgSchema)) $schemaList[] = $orgSchema;
 if (!empty($faqSchema)) $schemaList[] = $faqSchema;
+// 统计卡：只展示机构真实填写的值，空值/0 不渲染，避免新装站露出编造数据
+$statYears = trim((string)setting('site.stat_years', ''));
+$statHours = trim((string)setting('site.stat_hours', ''));
+$statClients = trim((string)setting('site.stat_clients', ''));
+$hasStats = ((int)$statYears > 0) || ((int)$statHours > 0) || ((int)$statClients > 0);
 ?>
 <section class="hero">
   <?php if ($banners): ?>
@@ -31,17 +36,19 @@ if (!empty($faqSchema)) $schemaList[] = $faqSchema;
 
 <?php if ($about): ?>
 <section class="section section-alt">
-  <div class="container about-teaser">
+  <div class="container about-teaser<?= $hasStats ? '' : ' about-teaser-solo' ?>">
     <div class="about-text">
       <h2 class="section-title">关于我们</h2>
       <p class="lead"><?= e(str_take(strip_tags((string)$about['content']), 180)) ?></p>
       <a class="more-link" href="<?= url('/p/about') ?>">了解更多 →</a>
     </div>
+    <?php if ($hasStats): ?>
     <div class="about-stats">
-      <div class="stat"><strong><?= e(setting('site.stat_years', '8')) ?></strong><span>年从业经验</span></div>
-      <div class="stat"><strong><?= e(setting('site.stat_hours', '20000')) ?></strong><span>+ 累计咨询时长</span></div>
-      <div class="stat"><strong><?= e(setting('site.stat_clients', '3000')) ?></strong><span>+ 服务会员</span></div>
+      <?php if ((int)$statYears > 0): ?><div class="stat"><strong><?= e($statYears) ?></strong><span>年从业经验</span></div><?php endif; ?>
+      <?php if ((int)$statHours > 0): ?><div class="stat"><strong><?= e($statHours) ?></strong><span>+ 累计咨询时长</span></div><?php endif; ?>
+      <?php if ((int)$statClients > 0): ?><div class="stat"><strong><?= e($statClients) ?></strong><span>+ 服务会员</span></div><?php endif; ?>
     </div>
+    <?php endif; ?>
   </div>
 </section>
 <?php endif; ?>

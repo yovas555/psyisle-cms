@@ -65,7 +65,7 @@ class StaticPage
         exit;
     }
 
-    public function notFound(Request $req, array $p): void
+    public static function notFound(Request $req, array $p): void
     {
         http_response_code(404);
         $meta = ['title' => '页面未找到', 'keywords' => '', 'description' => '', 'canonical' => null, 'og' => []];
