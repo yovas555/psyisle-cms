@@ -1,0 +1,165 @@
+{
+    "slug": "mail-notify",
+    "name": "邮件通知",
+    "version": "1.1.2",
+    "author": "PsyIsle Official",
+    "description": "把预约、咨询留言、访客提问、AI 转人工、活动报名、系统事件、授权变更等关键事件实时推送到管理员/值班邮箱。支持多收件人、类型开关、SMTP 自主配置、失败自动入队重试。",
+    "min_cms_version": "1.9.0",
+    "permissions": [
+        "hooks",
+        "cron",
+        "admin_menu",
+        "settings"
+    ],
+    "cron": [
+        {
+            "schedule": "minutely",
+            "action": "flushQueue"
+        }
+    ],
+    "admin_menu": {
+        "title": "邮件通知",
+        "icon": "📮",
+        "path": "",
+        "group": "渠道与自动化"
+    },
+    "settings": [
+        {
+            "key": "mail.enabled",
+            "label": "启用邮件通知",
+            "type": "switch",
+            "default": "0",
+            "help": "关闭时所有事件只在站内通知中心显示"
+        },
+        {
+            "key": "mail.host",
+            "label": "SMTP 服务器",
+            "type": "text",
+            "placeholder": "smtp.qq.com",
+            "help": "QQ/163 邮箱需开启 SMTP 并使用授权码"
+        },
+        {
+            "key": "mail.port",
+            "label": "端口",
+            "type": "number",
+            "default": "465"
+        },
+        {
+            "key": "mail.encryption",
+            "label": "加密方式",
+            "type": "select",
+            "default": "ssl",
+            "options": {
+                "ssl": "SSL（465）",
+                "tls": "STARTTLS（587）",
+                "none": "不加密"
+            }
+        },
+        {
+            "key": "mail.user",
+            "label": "SMTP 用户名（发件邮箱）",
+            "type": "text"
+        },
+        {
+            "key": "mail.pass",
+            "label": "SMTP 密码 / 授权码",
+            "type": "password"
+        },
+        {
+            "key": "mail.from",
+            "label": "发件人邮箱",
+            "type": "text",
+            "help": "留空使用 SMTP 用户名"
+        },
+        {
+            "key": "mail.from_name",
+            "label": "发件人名称",
+            "type": "text",
+            "default": "一二三"
+        },
+        {
+            "key": "notify.admin_email",
+            "label": "接收邮箱（支持多个，用 ; 分隔）",
+            "type": "textarea",
+            "rows": 2,
+            "placeholder": "admin@example.com;duty@example.com",
+            "help": "每个事件会逐一发送给所有收件人；建议填写值班人员邮箱"
+        },
+        {
+            "key": "notify.quiet_enabled",
+            "label": "启用夜间免打扰",
+            "type": "switch",
+            "default": "0",
+            "help": "开启后，免打扰时段内产生的通知会延迟到时段结束后发送，不会丢失"
+        },
+        {
+            "key": "notify.quiet_start",
+            "label": "免打扰开始时间（如 22:00）",
+            "type": "text",
+            "default": "22:00"
+        },
+        {
+            "key": "notify.quiet_end",
+            "label": "免打扰结束时间（如 08:00，支持跨午夜）",
+            "type": "text",
+            "default": "08:00"
+        },
+        {
+            "key": "notify.quiet_exempt_crisis",
+            "label": "危机预警与登录告警即时送达（安全底线）",
+            "type": "switch",
+            "default": "1",
+            "help": "危机与登录告警始终不受免打扰限制、即时送达（v2.2.0 起强制，开关保留但不生效）"
+        },
+        {
+            "key": "notify.on_booking",
+            "label": "新预约",
+            "type": "switch",
+            "default": "1"
+        },
+        {
+            "key": "notify.on_message",
+            "label": "咨询留言",
+            "type": "switch",
+            "default": "1"
+        },
+        {
+            "key": "notify.on_chat_question",
+            "label": "访客提问（AI 会话，同会话 5 分钟节流）",
+            "type": "switch",
+            "default": "1"
+        },
+        {
+            "key": "notify.on_chat_escalate",
+            "label": "AI 转人工 / 疑似未答",
+            "type": "switch",
+            "default": "1"
+        },
+        {
+            "key": "notify.on_event",
+            "label": "活动报名",
+            "type": "switch",
+            "default": "1"
+        },
+        {
+            "key": "notify.on_system",
+            "label": "系统事件（备份/完整性告警/升级）",
+            "type": "switch",
+            "default": "1"
+        },
+        {
+            "key": "notify.on_license",
+            "label": "授权变更",
+            "type": "switch",
+            "default": "1"
+        },
+        {
+            "key": "notify.mask_phone",
+            "label": "通知中手机号打码",
+            "type": "switch",
+            "default": "1"
+        }
+    ],
+    "signature": "TYYwGFmlwFed/LuKUdvkTY3dGTnMp2t+NTGrlD9l8/Efqpm4lR0lX/3wn9LSDUF5C8FxxXR1/ck2FCAr0lJfDQ==",
+    "changelog": "v1.1.2：后台导航分组（v2.8.1 导航重组）\n危机预警即时送达改为核心强制（不可配置关闭）；免打扰时段延迟不丢失"
+}

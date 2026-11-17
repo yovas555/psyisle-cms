@@ -1,0 +1,25 @@
+{
+    "slug": "booking-weekly-report",
+    "name": "预约周报",
+    "version": "1.0.1",
+    "author": "PsyIsle Official",
+    "description": "每周一上午 9 点汇总上周预约/留言/AI 会话数据，发送邮件周报给管理员。演示插件三要素：钩子、每日任务、后台配置。",
+    "permissions": [
+        "hooks",
+        "cron",
+        "admin_menu"
+    ],
+    "cron": [
+        {
+            "schedule": "daily",
+            "action": "dailyCron"
+        }
+    ],
+    "admin_menu": {
+        "title": "预约周报",
+        "path": "plugin/booking-weekly-report",
+        "group": "渠道与自动化"
+    },
+    "signature": "E/G0s9CD8foiRfbDZFxTcbUndXPE4W1U1rMkUJQDpqOEsU7xzgMS4sOsIbNpLjhQI9+HXtKYRrIOa88U3kbXBg==",
+    "changelog": "v1.0.1：后台导航分组（v2.8.1 导航重组）"
+}

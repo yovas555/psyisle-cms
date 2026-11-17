@@ -1,0 +1,37 @@
+/* 一二三主题 3：暖陶人文 —— 温润手作感（工作室/女性向） */
+:root {
+  --primary: #c26d4f;
+  --primary-dark: #a85840;
+  --primary-deep: #7e402e;
+  --primary-soft: #f9ece5;
+  --accent: #7fa07a;
+  --accent-strong: #63875e;
+  --accent-soft: #eef4ec;
+  --bg: #fbf6f0;
+  --bg-alt: #f4ebdf;
+  --surface: #ffffff;
+  --text: #3a2f28;
+  --text-soft: #71625a;
+  --text-muted: #a3948b;
+  --border: #ece0d2;
+  --border-strong: #dcccb9;
+  --success: #63875e;
+  --success-soft: #eef4ec;
+  --danger: #bf4a3f;
+  --danger-soft: #fbe9e7;
+  --warning: #a8752c;
+  --warning-soft: #faf1df;
+  --shadow: 0 1px 4px rgba(88, 61, 46, .07);
+  --shadow-hover: 0 8px 24px rgba(88, 61, 46, .12);
+}
+.hero, .cta-band {
+  background:
+    radial-gradient(circle at 88% 12%, rgba(127, 160, 122, .28), transparent 42%),
+    radial-gradient(circle at 8% 92%, rgba(255, 255, 255, .12), transparent 46%),
+    linear-gradient(135deg, #cf7a5a 0%, var(--primary-dark) 58%, #6d3a28 100%);
+}
+.brand-mark {
+  background: linear-gradient(135deg, #cf7a5a, #6d3a28);
+}
+.site-footer { background: #4a2f24; }
+.price, .accent-text { color: var(--accent-strong); }

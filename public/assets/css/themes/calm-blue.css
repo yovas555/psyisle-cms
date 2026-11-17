@@ -1,0 +1,37 @@
+/* 一二三主题 2：静水深蓝 —— 稳重专业（机构/医疗感） */
+:root {
+  --primary: #3f6fa8;
+  --primary-dark: #2f5c92;
+  --primary-deep: #234771;
+  --primary-soft: #e9f0f8;
+  --accent: #d9a441;
+  --accent-strong: #c08a2e;
+  --accent-soft: #fbf3e2;
+  --bg: #f8f9fb;
+  --bg-alt: #eef1f6;
+  --surface: #ffffff;
+  --text: #2a3340;
+  --text-soft: #5d6b7d;
+  --text-muted: #8a97a8;
+  --border: #e3e8ef;
+  --border-strong: #d2dae4;
+  --success: #3f8f6e;
+  --success-soft: #e6f4ee;
+  --danger: #c44b45;
+  --danger-soft: #fbebeb;
+  --warning: #b58324;
+  --warning-soft: #fbf3e2;
+  --shadow: 0 1px 4px rgba(35, 50, 74, .07);
+  --shadow-hover: 0 8px 24px rgba(35, 50, 74, .12);
+}
+/* 渐变面覆盖 */
+.hero, .cta-band {
+  background:
+    radial-gradient(circle at 88% 12%, rgba(217, 164, 65, .20), transparent 42%),
+    radial-gradient(circle at 8% 92%, rgba(255, 255, 255, .10), transparent 46%),
+    linear-gradient(135deg, #4a7cb5 0%, var(--primary-dark) 58%, #204066 100%);
+}
+.brand-mark {
+  background: linear-gradient(135deg, #4a7cb5, #204066);
+}
+.site-footer { background: #16273c; }

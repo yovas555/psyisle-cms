@@ -1,0 +1,36 @@
+/* 一二三主题 4：暮紫轻奢 —— 现代都市感（年轻化） */
+:root {
+  --primary: #6d5da8;
+  --primary-dark: #58498f;
+  --primary-deep: #3d3268;
+  --primary-soft: #eeebf8;
+  --accent: #c26478;
+  --accent-strong: #a94f63;
+  --accent-soft: #faecf0;
+  --bg: #f7f6fb;
+  --bg-alt: #eeecf6;
+  --surface: #ffffff;
+  --text: #2e2a3d;
+  --text-soft: #615a78;
+  --text-muted: #948da9;
+  --border: #e5e1f0;
+  --border-strong: #d4cfe6;
+  --success: #4f8f7a;
+  --success-soft: #e6f3ee;
+  --danger: #c2475f;
+  --danger-soft: #fbe9ed;
+  --warning: #a8734c;
+  --warning-soft: #faf0e7;
+  --shadow: 0 1px 4px rgba(47, 38, 82, .08);
+  --shadow-hover: 0 8px 24px rgba(47, 38, 82, .13);
+}
+.hero, .cta-band {
+  background:
+    radial-gradient(circle at 88% 12%, rgba(194, 100, 120, .30), transparent 42%),
+    radial-gradient(circle at 8% 92%, rgba(255, 255, 255, .12), transparent 46%),
+    linear-gradient(135deg, #7b6ab8 0%, var(--primary-dark) 58%, #2e254e 100%);
+}
+.brand-mark {
+  background: linear-gradient(135deg, #7b6ab8, #2e254e);
+}
+.site-footer { background: #241d3d; }

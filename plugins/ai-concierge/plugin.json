@@ -1,0 +1,80 @@
+{
+    "slug": "ai-concierge",
+    "name": "AI 客服配置",
+    "version": "1.0.2",
+    "author": "PsyIsle Official",
+    "description": "接入 OpenAI 兼容大模型（DeepSeek / 通义 / 智谱 / Kimi），知识库优先应答，角色与附加提示词可视化配置，未答自动提醒人工接手。危机干预兜底在核心层强制生效，不受本插件开关影响。",
+    "min_cms_version": "1.9.0",
+    "permissions": [
+        "hooks",
+        "admin_menu",
+        "settings"
+    ],
+    "admin_menu": {
+        "title": "AI 客服配置",
+        "icon": "🎧",
+        "path": "",
+        "group": "渠道与自动化"
+    },
+    "settings": [
+        {
+            "key": "ai.enabled",
+            "label": "启用 AI 客服",
+            "type": "switch",
+            "default": "0",
+            "help": "关闭后前台只显示留言引导"
+        },
+        {
+            "key": "ai.provider",
+            "label": "服务商预设（选择后自动填充下方地址与模型）",
+            "type": "select",
+            "default": "deepseek",
+            "options": {
+                "deepseek": "DeepSeek（深度求索）",
+                "agnes": "Agnes AI（apihub.agnes-ai.com）",
+                "agnes-cn": "Agnes AI 中国区（api.agnes-ai.cn）",
+                "tongyi": "通义千问（阿里百炼）",
+                "zhipu": "智谱 GLM",
+                "kimi": "Kimi（月之暗面）",
+                "openai": "OpenAI",
+                "custom": "自定义（手动填地址与模型）"
+            },
+            "help": "预设只是快捷填充，最终以「API 地址」与「模型名」为准；Agnes AI 为 OpenAI 兼容接口，模型如 agnes-2.5-flash"
+        },
+        {
+            "key": "ai.base_url",
+            "label": "API 地址（OpenAI 兼容）",
+            "type": "text",
+            "default": "https://api.deepseek.com",
+            "placeholder": "https://api.deepseek.com"
+        },
+        {
+            "key": "ai.api_key",
+            "label": "API Key",
+            "type": "password",
+            "placeholder": "sk-…"
+        },
+        {
+            "key": "ai.model",
+            "label": "模型名",
+            "type": "text",
+            "placeholder": "deepseek-chat"
+        },
+        {
+            "key": "ai.persona",
+            "label": "客服角色提示词（留空用系统默认身份）",
+            "type": "textarea",
+            "rows": 4,
+            "help": "定义客服名字、身份、语气与边界。危机干预规则始终由核心强制附加，无法被覆盖。"
+        },
+        {
+            "key": "ai.extra_prompt",
+            "label": "附加提示词 / 机构要求",
+            "type": "textarea",
+            "rows": 3,
+            "help": "追加在角色设定之后，例如「提及费用时引导到咨询服务页」"
+        }
+    ],
+    "signature": "Ax54dXCMw+fvjPONTduxM16qoNuzBtyoloZqOfmvdvlYKBg/TQiOHhnvs5UzDpp0saP4PCIRUcdQbzAWcesMCg==",
+    "changelog": "v1.0.2：后台导航分组（v2.8.1 导航重组）\n新增 Agnes AI 服务商预设（含中国区）；endpoint 兼容 /v1 结尾；改名「AI 客服配置」"
+}
