@@ -17,6 +17,28 @@ class StaticPage
         echo SeoService::robots();
     }
 
+    /** v2.18：健康检查（匿名，无敏感信息——供监控/负载均衡探测） */
+    public function healthz(Request $req, array $p): void
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+        try {
+            \app\Core\Database::value('SELECT 1', []);
+            $db = 'ok';
+        } catch (\Throwable $t) {
+            $db = 'fail';
+        }
+        $cacheOk = @is_writable(STORAGE . '/cache') ? 'ok' : 'fail';
+        echo json_encode([
+            'ok' => $db === 'ok' && $cacheOk === 'ok',
+            'db' => $db,
+            'cache' => $cacheOk,
+            'version' => CMS_VERSION,
+            'time' => date('Y-m-d H:i:s'),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     public function sitemap(Request $req, array $p): void
     {
         header('Content-Type: application/xml; charset=utf-8');

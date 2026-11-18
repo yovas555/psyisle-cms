@@ -47,10 +47,40 @@ class Cache
         @unlink(self::file($key));
     }
 
+    /**
+     * remember（v2.18 防击穿）：并发首个过期时只允许一个进程回源计算，
+     * 其余进程持锁等待最多 2 秒后复读；拿不到锁的进程自行计算（降级不阻塞）。
+     */
     public static function remember(string $key, int $ttl, callable $fn)
     {
         $v = self::get($key);
         if ($v !== null) return $v;
+        $lockFile = self::dir() . '/' . hash('sha256', $key) . '.lock';
+        $fp = @fopen($lockFile, 'c');
+        if ($fp && flock($fp, LOCK_EX | LOCK_NB)) {
+            try {
+                $v = self::get($key); // 双检：拿锁期间可能已被他人回填
+                if ($v !== null) return $v;
+                $v = $fn();
+                self::set($key, $v, $ttl);
+                return $v;
+            } finally {
+                flock($fp, LOCK_UN);
+                fclose($fp);
+                @unlink($lockFile);
+            }
+        }
+        if ($fp) {
+            // 等持锁者回填（最多 2 秒）
+            $deadline = microtime(true) + 2.0;
+            while (microtime(true) < $deadline) {
+                usleep(50_000);
+                $v = self::get($key);
+                if ($v !== null) { fclose($fp); @unlink($lockFile); return $v; }
+            }
+            fclose($fp);
+        }
+        // 降级：自己算（不阻塞业务）
         $v = $fn();
         self::set($key, $v, $ttl);
         return $v;
@@ -59,5 +89,6 @@ class Cache
     public static function flush(): void
     {
         foreach (glob(self::dir() . '/*.cache') as $f) { @unlink($f); }
+        foreach (glob(self::dir() . '/*.lock') as $f) { @unlink($f); }
     }
 }

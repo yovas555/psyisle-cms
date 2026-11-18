@@ -10,6 +10,12 @@ class Logger
         self::write('error', $channel, $message, $ctx);
     }
 
+    /** v2.18：warning 级（慢查询/重试/降级等可自愈事件——与真错误区分，避免 error 噪音） */
+    public static function warning(string $channel, string $message, array $ctx = []): void
+    {
+        self::write('warning', $channel, $message, $ctx);
+    }
+
     public static function info(string $channel, string $message, array $ctx = []): void
     {
         self::write('info', $channel, $message, $ctx);

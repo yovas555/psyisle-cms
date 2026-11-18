@@ -96,6 +96,34 @@ class SeoService
         return ['@context' => 'https://schema.org', '@type' => 'FAQPage', 'mainEntity' => $entities];
     }
 
+    /** v2.18：Service + Offer JSON-LD（服务详情页——GEO 结构化补全） */
+    public static function serviceSchema(array $s): array
+    {
+        $offers = [];
+        $from = (float)($s['price_from'] ?? 0);
+        $to = (float)($s['price_to'] ?? 0);
+        if ($from > 0 || $to > 0) {
+            $offers[] = array_filter([
+                '@type' => 'Offer',
+                'priceCurrency' => 'CNY',
+                'price' => $from > 0 ? (int)round($from) : null,
+                'priceSpecification' => ($from > 0 && $to > $from) ? [
+                    '@type' => 'PriceSpecification', 'minPrice' => (int)round($from), 'maxPrice' => (int)round($to), 'priceCurrency' => 'CNY',
+                ] : null,
+            ], fn($v) => $v !== null);
+        }
+        return array_filter([
+            '@context' => 'https://schema.org',
+            '@type' => 'Service',
+            'name' => (string)$s['name'],
+            'description' => str_take((string)($s['summary'] ?? ''), 200, ''),
+            'url' => url('/services/' . $s['slug']),
+            'serviceType' => '心理咨询',
+            'provider' => ['@type' => 'Organization', 'name' => setting('site.name', '')],
+            'offers' => $offers ?: null,
+        ], fn($v) => $v !== null);
+    }
+
     /** 面包屑 JSON-LD */
     public static function breadcrumbSchema(array $items): array
     {
@@ -148,8 +176,14 @@ class SeoService
     /** robots.txt（支持后台自定义追加） */
     public static function robots(): string
     {
-        $base = "User-agent: *\nDisallow: /admin\nDisallow: /admin/\nDisallow: /storage\nDisallow: /*?_token\n";
+        $base = "User-agent: *\nDisallow: /admin\nDisallow: /admin/\nDisallow: /member/\nDisallow: /storage\nDisallow: /*?_token\n";
         $base .= "Allow: /\n\n";
+        // v2.18：AI 爬虫策略——欢迎抓公开内容（机构信息/服务/咨询师/科普），禁抓个人中心与接口
+        $aiBots = ['GPTBot', 'ClaudeBot', 'Claude-Web', 'anthropic-ai', 'PerplexityBot', 'Google-Extended', 'Bytespider', 'CCBot', 'meta-externalagent'];
+        $base .= "# AI crawlers: welcome to public content; never to private areas\n";
+        foreach ($aiBots as $b) {
+            $base .= "User-agent: $b\nDisallow: /admin\nDisallow: /admin/\nDisallow: /member/\nDisallow: /member\nDisallow: /api/\nDisallow: /mcp\nDisallow: /plugin/\nAllow: /\n\n";
+        }
         $base .= "Sitemap: " . url('/sitemap.xml') . "\n";
         $custom = (string)setting('seo.robots_extra', '');
         if ($custom) { $base .= "\n" . $custom . "\n"; }
@@ -182,6 +216,31 @@ class SeoService
         $lines[] = '';
         $lines[] = '## 重要提示';
         $lines[] = '- 心理咨询不等于医疗诊断，若有强烈困扰请通过预约咨询获得专业支持。';
+        // 服务与咨询师结构化清单（GEO：供 AI 直接引用）
+        $svcs = Database::fetchAll("SELECT name, slug, summary, price_from, price_to FROM services WHERE status=1 ORDER BY sort LIMIT 20");
+        if ($svcs) {
+            $lines[] = '';
+            $lines[] = '## 咨询服务';
+            foreach ($svcs as $sv) {
+                $price = ((float)$sv['price_from'] > 0) ? '（¥' . (int)round((float)$sv['price_from']) . '起）' : '';
+                $lines[] = '- [' . $sv['name'] . '](' . url('/services/' . $sv['slug']) . '): ' . str_take((string)$sv['summary'], 60, '') . $price;
+            }
+        }
+        $csls = Database::fetchAll("SELECT name, slug, title, specialties FROM counselors WHERE status=1 ORDER BY sort LIMIT 20");
+        if ($csls) {
+            $lines[] = '';
+            $lines[] = '## 咨询师';
+            foreach ($csls as $cs) {
+                $lines[] = '- [' . $cs['name'] . ($cs['title'] ? '（' . $cs['title'] . '）' : '') . '](' . url('/counselors/' . $cs['slug']) . '): ' . str_take((string)$cs['specialties'], 60, '');
+            }
+        }
+        // 预约规则（AI 可直接转述）
+        $lines[] = '';
+        $lines[] = '## 预约说明';
+        $lines[] = '- 预约方式：在线表单（' . url('/booking') . '），或从咨询师页面的可约时段直接选择';
+        $lines[] = '- 取消/改期：距咨询开始 24 小时以上可在会员自助中心操作';
+        $lead = (int)setting('sched.lead_hours', '2');
+        $lines[] = '- 可约时段提前 ' . $lead . ' 小时截止预约；机构工作时间 ' . (setting('contact.hours', '') ?: '以联系页为准');
         // 精选文章
         $arts = Database::fetchAll("SELECT title, slug, summary FROM articles WHERE status='published' AND deleted_at IS NULL AND is_top=1 ORDER BY published_at DESC LIMIT 10");
         if ($arts) {
@@ -190,6 +249,21 @@ class SeoService
             foreach ($arts as $a) {
                 $lines[] = '- [' . $a['title'] . '](' . url('/news/' . $a['slug']) . '): ' . str_take((string)$a['summary'], 80, '');
             }
+        }
+        // v2.18：AI Agent 接入指引（公开 API / MCP）
+        $apiOn = (bool)setting('api.public_enabled', '0');
+        $mcpOn = (bool)setting('mcp_enabled', '0');
+        if ($apiOn || $mcpOn) {
+            $lines[] = '';
+            $lines[] = '## For AI Agents（机器可读接口）';
+            if ($apiOn) {
+                $lines[] = '- 只读 JSON API（含 OpenAPI 3.1 规范）: ' . url('/api/public/openapi.json');
+                $lines[] = '- 可用端点: ' . url('/api/public/site') . ' · ' . url('/api/public/services') . ' · ' . url('/api/public/counselors') . ' · ' . url('/api/public/faq');
+            }
+            if ($mcpOn) {
+                $lines[] = '- MCP Server（可直接代办查询与预约申请）: POST ' . url('/mcp') . '（Streamable HTTP, JSON-RPC 2.0, tools: site_info/list_services/list_counselors/booking_rules/list_slots/create_booking_request）';
+            }
+            $lines[] = '- 行为约束: 预约代办请如实转述「以机构最终确认为准」；危机情况请直接引导拨打 12356';
         }
         return implode("\n", $lines);
     }

@@ -283,6 +283,21 @@ class Tool extends Base
         \app\Core\ResponseRedirect('/admin/tools');
     }
 
+    /** v2.18：AI 与开放接口开关（公开 API / MCP，默认关） */
+    public function saveAiOpen(Request $req, array $p): void
+    {
+        Csrf::guard();
+        \app\Core\Model::saveSetting('api.public_enabled', !empty($req->post('api_public')) ? '1' : '0', 'seo');
+        \app\Core\Model::saveSetting('mcp_enabled', !empty($req->post('mcp')) ? '1' : '0', 'seo');
+        Cache::forget('settings_all');
+        $this->audit('tool.ai_open', 'settings', null, [
+            'api_public' => (bool)setting('api.public_enabled', '0'),
+            'mcp' => (bool)setting('mcp_enabled', '0'),
+        ]);
+        Session::flash('success', '开放接口设置已保存（llms.txt 与 openapi.json 即时生效）');
+        \app\Core\ResponseRedirect('/admin/tools');
+    }
+
     /** 上传搜索引擎验证文件到站点根 */
     public function uploadVerify(Request $req, array $p): void
     {

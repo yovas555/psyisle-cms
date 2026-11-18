@@ -40,6 +40,23 @@
       <textarea name="robots_extra" rows="3" placeholder="如针对特定爬虫的规则"><?= e((string)$robotsExtra) ?></textarea>
       <button class="btn btn-ghost" type="submit">保存</button>
     </form>
+
+    <h2 style="margin-top:18px">AI 与开放接口（v2.18）</h2>
+    <p class="muted" style="font-size:13px">让外部 AI Agent（Claude/ChatGPT/自建助手）能读取机构公开信息并代办预约。默认关闭；开启后请到各大搜索/助手平台提交 <code>llms.txt</code> 与 <code>/api/public/openapi.json</code>。</p>
+    <form method="post" action="/admin/tools/ai-open">
+      <?= csrf_field() ?>
+      <label style="display:flex;gap:8px;align-items:center;margin:6px 0">
+        <input type="checkbox" name="api_public" value="1" <?= (bool)setting('api.public_enabled', '0') ? 'checked' : '' ?>>
+        <b>公开只读 JSON API</b>
+        <span class="muted" style="font-size:12px">/api/public/site · services · counselors · faq · openapi.json（脱敏、限流、ETag）</span>
+      </label>
+      <label style="display:flex;gap:8px;align-items:center;margin:6px 0">
+        <input type="checkbox" name="mcp" value="1" <?= (bool)setting('mcp_enabled', '0') ? 'checked' : '' ?>>
+        <b>MCP Server</b>
+        <span class="muted" style="font-size:12px">POST /mcp（AI 可查询时段/规则并代提交预约申请；预约走人工确认通道）</span>
+      </label>
+      <button class="btn btn-ghost" type="submit">保存开放设置</button>
+    </form>
   </div>
 
   <div class="panel">

@@ -6,14 +6,31 @@ namespace app\Core;
 use PDO;
 use PDOException;
 
+/**
+ * 数据库访问层（v2.18 专业内核强化）
+ * ------------------------------------------------------------------
+ * v2.18 新增：
+ *  - transaction(callable)：事务助手（异常自动回滚，闭包返回值透传）
+ *  - 死锁/锁等待自动重试（SQLSTATE 1213/1205，3 次指数退避）
+ *  - 断线自动重连（2006 MySQL server has gone away，单次重连重试——cron 长进程跨夜必备）
+ *  - 慢查询观测（>200ms 落 warning 日志，供后台健康卡统计）
+ */
 class Database
 {
     private static ?PDO $pdo = null;
     private static int $queryCount = 0;
+    public const SLOW_MS = 200;
+    private const RETRYABLE = [1213, 1205]; // 死锁 / 锁等待超时
+    private const GONE = [2006, 2013];      // server has gone away / connection lost
 
     public static function pdo(): PDO
     {
         if (self::$pdo !== null) return self::$pdo;
+        return self::connect();
+    }
+
+    private static function connect(): PDO
+    {
         $cfg = CONFIG['db'] ?? [];
         $dsn = sprintf(
             'mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
@@ -36,13 +53,55 @@ class Database
         return self::$pdo;
     }
 
-    /** 预处理执行 */
+    /** 事务助手：闭包内抛任意异常自动回滚并向上抛；成功返回闭包返回值 */
+    public static function transaction(callable $fn)
+    {
+        $pdo = self::pdo();
+        $pdo->beginTransaction();
+        try {
+            $r = $fn();
+            $pdo->commit();
+            return $r;
+        } catch (\Throwable $t) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $t;
+        }
+    }
+
+    /** 预处理执行（含死锁重试/断线重连/慢查询观测） */
     public static function run(string $sql, array $params = []): \PDOStatement
     {
         self::$queryCount++;
-        $st = self::pdo()->prepare($sql);
-        $st->execute($params);
-        return $st;
+        $t0 = microtime(true);
+        $attempt = 0;
+        retry:
+        try {
+            $st = self::pdo()->prepare($sql);
+            $st->execute($params);
+            $ms = (int)round((microtime(true) - $t0) * 1000);
+            if ($ms >= self::SLOW_MS) {
+                Logger::warning('DB', sprintf('slow query %dms', $ms), [
+                    'sql' => str_take(preg_replace('/\s+/', ' ', $sql), 160, ''),
+                    'params' => str_take(json_encode($params, JSON_UNESCAPED_UNICODE), 160, ''),
+                ]);
+            }
+            return $st;
+        } catch (PDOException $e) {
+            $code = (int)($e->errorInfo[1] ?? 0);
+            $driverCode = (int)($e->getCode() ?? 0);
+            // 死锁/锁等待：最多重试 3 次（指数退避 10/50/250ms）
+            if (in_array($code, self::RETRYABLE, true) && $attempt < 3) {
+                $attempt++;
+                usleep((int)(10 * 5 ** ($attempt - 1) * 1000)); // 10ms / 50ms / 250ms
+                goto retry;
+            }
+            // 断线：重连一次再试（cron 长进程跨夜场景）
+            if ((in_array($driverCode, self::GONE, true) || in_array($code, self::GONE, true)) && self::$pdo !== null) {
+                self::$pdo = null;
+                try { self::connect(); goto retry; } catch (\Throwable $t2) { /* 重连失败走原错误 */ }
+            }
+            throw $e;
+        }
     }
 
     public static function fetch(string $sql, array $params = []): ?array

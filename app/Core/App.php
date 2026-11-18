@@ -34,6 +34,7 @@ class App
 
         // ===== 动态 SEO 资产 =====
         $r->get('/robots.txt', 'StaticPage@robots');
+        $r->get('/healthz', 'StaticPage@healthz');
         $r->get('/sitemap.xml', 'StaticPage@sitemap');
         $r->get('/rss.xml', 'StaticPage@rss');
         $r->get('/llms.txt', 'StaticPage@llms');
@@ -54,9 +55,14 @@ class App
         $r->get('/booking', 'Booking@create');
         $r->post('/booking', 'Booking@store');
         $r->get('/booking/confirm', 'Booking@confirm');
+        $r->get('/booking/success', 'Booking@success');
         $r->get('/booking/check', 'Booking@check');
         $r->get('/booking/slots', 'Booking@slots');
         $r->get('/n/{token:[a-f0-9]{16}}', 'NotifyClick@go');
+        // v2.18：公开只读 API（api.public_enabled 开关）与 MCP Server（mcp_enabled 开关，默认关）
+        $r->get('/api/public/{path:[a-zA-Z_]+}', 'PublicApi@dispatch');
+        $r->post('/mcp', 'Mcp@handle');
+        $r->get('/mcp', 'Mcp@handle');
         $r->get('/events', 'Event@index');
         $r->get('/events/{slug:\w[\w\-]*}', 'Event@show');
         $r->post('/events/{slug:\w[\w\-]*}/register', 'Event@register');
@@ -218,6 +224,7 @@ class App
         $r->post('/admin/tools/import-content', 'Admin\Tool@importContent');
         $r->post('/admin/tools/cache', 'Admin\Tool@clearCache');
         $r->post('/admin/tools/robots', 'Admin\Tool@saveRobots');
+        $r->post('/admin/tools/ai-open', 'Admin\Tool@saveAiOpen');
         $r->post('/admin/tools/push-urls', 'Admin\Tool@pushUrls');
         $r->post('/admin/tools/verify', 'Admin\Tool@uploadVerify');
         $r->post('/admin/license/activate', 'Admin\License@activate');

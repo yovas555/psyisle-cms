@@ -46,6 +46,7 @@ class Service
             'counselors' => Database::fetchAll('SELECT name, slug, title FROM counselors WHERE status=1 ORDER BY sort LIMIT 6'),
             'crumbs' => ['首页' => url('/'), '咨询服务' => url('/services'), $s['name'] => ''],
             'breadcrumbSchema' => SeoService::breadcrumbSchema(['首页' => url('/'), '咨询服务' => url('/services'), $s['name'] => url('/services/' . $s['slug'])]),
+            'extraSchema' => ['service' => SeoService::serviceSchema($s)],
         ]);
     }
 }

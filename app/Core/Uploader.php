@@ -77,6 +77,10 @@ class Uploader
         }
         @chmod($dest, 0644);
         $path = '/uploads/' . $sub . '/' . $name;
+        // v2.18 隐私加固：jpg/png 重编码剥离 EXIF（GPS 定位/设备信息——来访者照片属敏感隐私）
+        if (in_array($ext, ['jpg', 'jpeg', 'png'], true) && function_exists('imagecreatetruecolor')) {
+            self::stripExif($dest, $ext);
+        }
         // 生成 600px 宽缩略图（列表加速；WebP 优先，GD 不支持时回退 JPEG）
         self::makeThumb($dest, $ext, $sub, $name);
 
@@ -96,6 +100,26 @@ class Uploader
             Logger::error('upload', 'attachment record failed: ' . $t->getMessage());
         }
         return [true, $path, $orig, ''];
+    }
+
+    /** v2.18 隐私：重编码覆盖原图（EXIF/GPS/设备元数据全部剥离；失败保留原图不影响上传） */
+    private static function stripExif(string $path, string $ext): void
+    {
+        try {
+            $img = $ext === 'png' ? @imagecreatefrompng($path) : @imagecreatefromjpeg($path);
+            if (!$img) return;
+            if ($ext === 'png') {
+                imagealphablending($img, false);
+                imagesavealpha($img, true);
+                imagepng($img, $path, 6);
+            } else {
+                imagejpeg($img, $path, 88);
+            }
+            imagedestroy($img);
+            @chmod($path, 0644);
+        } catch (\Throwable $t) {
+            Logger::warning('upload', 'exif strip failed: ' . $t->getMessage());
+        }
     }
 
     /** 列表缩略图：宽 600 等比；输出 /uploads/{sub}/t_{name}.webp|.jpg */
