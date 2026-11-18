@@ -50,6 +50,55 @@ class Booking
         ]);
     }
 
+    /** v2.17.0：槽位预约确认+支付页（从咨询师日历点击时段进入） */
+    public function confirm(Request $req, array $p): void
+    {
+        StatsService::track();
+        $cid = (int)$req->get('counselor', 0);
+        $date = (string)$req->get('date', '');
+        $start = (string)$req->get('start', '');
+        if ($cid <= 0 || $date === '' || $start === '') {
+            Session::flash('error', '请先选择咨询时段');
+            \app\Core\ResponseRedirect('/booking');
+        }
+        $c = Database::fetch('SELECT id, name, title, slug, avatar, introduction, fee_from, fee_to FROM counselors WHERE id=? AND status=1', [$cid]);
+        if (!$c) {
+            Session::flash('error', '咨询师不存在或已停用');
+            \app\Core\ResponseRedirect('/booking');
+        }
+        [$ok, $msgOrLabel] = \app\Services\BookingSlots::checkAvailable($cid, $date, $start);
+        if (!$ok) {
+            Session::flash('error', $msgOrLabel);
+            \app\Core\ResponseRedirect('/counselors/' . (string)$c['slug']);
+        }
+        $slotLabel = (string)$msgOrLabel;
+        $services = Database::fetchAll('SELECT id, name, price_from, price_to FROM services WHERE status=1 ORDER BY sort');
+        $mCur = \app\Services\MemberService::current();
+        if (!$mCur && (bool)setting('booking.require_member', '0')) {
+            \app\Core\Session::set('member_return', '/booking/confirm?counselor=' . $cid . '&date=' . urlencode($date) . '&start=' . urlencode($start));
+            \app\Core\Session::flash('error', '预约请先登录会员账号（预约与提醒、支付均在会员中心管理）');
+            \app\Core\ResponseRedirect('/member/login');
+        }
+        // 价格预览（视频=在线支付；fee_override 分时价优先）
+        $feeCents = \app\Services\BookingSlots::slotPriceCents($cid, $date, $slotLabel);
+        $extras = \app\Core\Hook::fire('booking.form.extras', [
+            'req' => $req, 'top_html' => '', 'html' => '',
+        ]);
+        $meta = SeoService::meta('预约确认', '确认咨询时段并提交预约', '预约确认,心理咨询', url('/booking'));
+        View::render('booking/confirm', [
+            'meta' => $meta,
+            'c' => $c, 'date' => $date, 'slotLabel' => $slotLabel,
+            'slotStart' => $start,
+            'feeCents' => $feeCents,
+            'services' => $services,
+            'member' => $mCur,
+            'week' => '周' . mb_substr('一二三四五六日', (int)date('N', strtotime($date)) - 1, 1),
+            'formTopExtras' => (string)($extras['top_html'] ?? ''),
+            'formExtras' => (string)($extras['html'] ?? ''),
+            'crumbs' => ['首页' => url('/'), '咨询师' => url('/counselors'), $c['name'] => url('/counselors/' . $c['slug']), '预约确认' => ''],
+        ]);
+    }
+
     public function store(Request $req, array $p): void
     {
         Csrf::guard();
@@ -74,6 +123,10 @@ class Booking
         ], ['name' => '姓名', 'phone' => '手机号', 'captcha' => '验证码']);
         if ($v->fails() || !Captcha::check((string)$data['captcha'])) {
             Session::flash('error', $v->firstError() ?: '验证码不正确');
+            if ((string)($data['booking_mode'] ?? '') === 'slot') {
+                \app\Core\ResponseRedirect('/booking/confirm?counselor=' . (int)($data['counselor_id'] ?? 0)
+                    . '&date=' . urlencode((string)($data['prefer_date'] ?? '')) . '&start=' . urlencode((string)($data['slot_start'] ?? '')));
+            }
             \app\Core\ResponseRedirect('/booking');
         }
         if (empty($data['consent'])) {
@@ -83,6 +136,23 @@ class Booking
         if (($data['age_range'] ?? '') === '18岁以下' && empty($data['guardian_consent'])) {
             Session::flash('error', '未成年人预约需勾选监护人知情同意');
             \app\Core\ResponseRedirect('/booking');
+        }
+        // v2.17.0：槽位预约（确认页提交）——精确时段校验 + 标准化 prefer_slot「HH:MM-HH:MM」
+        $isSlotMode = (string)($data['booking_mode'] ?? '') === 'slot';
+        if ($isSlotMode) {
+            $cidS = (int)($data['counselor_id'] ?? 0);
+            $dateS = (string)($data['prefer_date'] ?? '');
+            $startS = (string)($data['slot_start'] ?? '');
+            if ($cidS <= 0 || $dateS === '' || $startS === '') {
+                Session::flash('error', '预约信息不完整，请从咨询师日历重新选择时段');
+                \app\Core\ResponseRedirect('/booking');
+            }
+            [$okS, $msgOrLabelS] = \app\Services\BookingSlots::checkAvailable($cidS, $dateS, $startS);
+            if (!$okS) {
+                Session::flash('error', $msgOrLabelS);
+                \app\Core\ResponseRedirect('/booking?counselor=' . $cidS . '&source=counselor');
+            }
+            $data['prefer_slot'] = (string)$msgOrLabelS; // 「HH:MM-HH:MM」
         }
 
         $code = gen_code(8);
@@ -98,15 +168,15 @@ class Booking
             Session::flash('error', (string)$extra['error']);
             \app\Core\ResponseRedirect('/booking');
         }
-        // v2.13.0：视频咨询 → 按咨询师「收费起」定价，需会员在线支付
+        // v2.13.0：视频咨询 → 在线支付；v2.17.0：分时定价（fee_override）优先，兜底「收费起」
         $amountCents = null; $payStatus = 'free';
         if (mb_stripos((string)($data['method'] ?? ''), '视频') !== false) {
-            $cslFee = (int)($data['counselor_id'] ?? 0) > 0
-                ? Database::value('SELECT fee_from FROM counselors WHERE id=? AND status=1', [(int)$data['counselor_id']])
+            $cidP = (int)($data['counselor_id'] ?? 0);
+            $amountCents = $cidP > 0
+                ? \app\Services\BookingSlots::slotPriceCents($cidP, (string)($data['prefer_date'] ?? ''), (string)($data['prefer_slot'] ?? ''))
                 : null;
-            $amountCents = $cslFee !== null && (float)$cslFee > 0 ? (int)round((float)$cslFee * 100) : null;
-            $payStatus = $amountCents !== null && \app\Services\MemberService::current() ? 'unpaid' : 'unpaid';
-            if ($amountCents === null) { $payStatus = 'free'; } // 咨询师未定价 → 免费占位（线下沟通）
+            if ($amountCents === null || $amountCents <= 0) { $payStatus = 'free'; } // 咨询师未定价 → 免费占位（线下沟通）
+            else { $payStatus = 'unpaid'; }
         }
         $id = Database::insert('bookings', array_merge([
             'code' => $code,
@@ -124,10 +194,10 @@ class Booking
             'issue' => mb_substr((string)($data['issue'] ?? ''), 0, 999),
             'urgency' => !empty($data['urgency']) ? 1 : 0,
             'status' => 'pending',
-            // v2.13.0：线上咨询定价与支付状态（面对面/电话默认 free 线下结算；视频按咨询师收费起价在线支付）
+            // v2.13.0：线上咨询定价与支付状态（面对面/电话默认 free 线下结算；视频按时段价在线支付）
             'amount_cents' => $amountCents,
             'pay_status' => $payStatus,
-            'source' => in_array(($data['source'] ?? ''), ['assessment', 'chat', 'counselor'], true)
+            'source' => in_array(($data['source'] ?? ''), ['assessment', 'chat', 'counselor', 'slot'], true)
                 ? (string)$data['source'] : 'web',
             'ip' => $req->ip(),
             'created_at' => date('Y-m-d H:i:s'),
@@ -152,20 +222,7 @@ class Booking
             true
         );
         Logger::info('booking', 'new booking', ['id' => $id]);
-        // v2.9.0：预约提交回执 → 通知会员（登录会员或手机号匹配的会员）
-        $notifyMid = (int)(\app\Services\MemberService::current()['id'] ?? 0) ?: \app\Services\MemberNotifyService::memberIdByPhone((string)$data['phone']);
-        if ($notifyMid > 0) {
-            \app\Services\MemberNotifyService::push($notifyMid, 'booking_new', [
-                'title' => '预约已提交，等待机构确认',
-                'lines' => [
-                    '查询码' => $code,
-                    '期望时间' => trim((string)($data['prefer_date'] ?? '') . ' ' . (string)($data['prefer_slot'] ?? '')) ?: '不限',
-                    '方式' => (string)($data['method'] ?? '未指定'),
-                ],
-                'note' => '机构确认后会通过本邮箱/微信通知您；紧急情况请拨打 12356。',
-                'url' => base_url() . '/member/bookings',
-            ]);
-        }
+        // v2.9.0：预约提交回执 → 通知会员（登录会员或手机号匹配的会员；v2.17.0 合并去重，只推一次）
 
         // 若留了邮箱，队列发送预约确认邮件（SMTP 配置后自动生效）
         $email = trim((string)($data['email'] ?? ''));
@@ -187,6 +244,7 @@ class Booking
             }
         }
         // v2.14.0：会员三通道（站内/微信/短信）+ 咨询师三通道
+        $notifyMid = $mCur2 ? (int)$mCur2['id'] : \app\Services\MemberNotifyService::memberIdByPhone((string)$data['phone']);
         $notifyData = [
             'title' => '预约已提交：' . $code,
             'body' => ($data['prefer_date'] ?: '待定') . ' ' . ($data['prefer_slot'] ?? '') . ' · ' . ($data['method'] ?? ''),
@@ -197,6 +255,8 @@ class Booking
         ];
         if ($mCur2) {
             \app\Services\MemberNotifyService::push((int)$mCur2['id'], 'booking_new', $notifyData);
+        } elseif ((int)$notifyMid > 0) {
+            \app\Services\MemberNotifyService::push((int)$notifyMid, 'booking_new', $notifyData);
         }
         if ((int)($data['counselor_id'] ?? 0) > 0) {
             \app\Services\CounselorNotifyService::push((int)$data['counselor_id'], 'booking_new', [
@@ -210,7 +270,13 @@ class Booking
             'code' => $code, 'name' => (string)$data['name'],
             'amount_cents' => $amountCents, 'pay_status' => $payStatus,
             'method' => (string)($data['method'] ?? ''),
+            'id' => $id,
+            'slot_mode' => $isSlotMode,
         ]);
+        // v2.17.0：槽位预约且需在线支付 → 登录会员直接进收银台；未登录到成功页引导登录后支付
+        if ($isSlotMode && $amountCents !== null && $mCur2) {
+            \app\Core\ResponseRedirect('/plugin/wechat-pay/pay-booking/' . $id);
+        }
         \app\Core\ResponseRedirect('/booking/success');
     }
 
@@ -228,7 +294,7 @@ class Booking
             'crumbs' => ['首页' => url('/'), '预约咨询' => url('/booking'), '提交成功' => '']]);
     }
 
-    /** AJAX：某咨询师某日期的可约时段 */
+    /** AJAX：某咨询师某日期的可约时段（v2.17.0 走统一槽位服务：切片/例外/请假/占用/提前截止） */
     public function slots(Request $req, array $p): void
     {
         $cid = (int)$req->get('counselor_id', 0);
@@ -236,21 +302,24 @@ class Booking
         if ($cid <= 0 || $date === '' || strtotime($date) === false) {
             json_out(['ok' => false, 'slots' => []]);
         }
-        $weekday = (int)date('N', strtotime($date)); // 1-7
         if (strtotime($date) < strtotime(date('Y-m-d'))) {
             json_out(['ok' => true, 'slots' => [], 'msg' => '日期已过期']);
         }
-        $slots = Database::fetchAll(
-            'SELECT start_time, end_time FROM counselor_slots WHERE counselor_id=? AND weekday=? AND status=1 ORDER BY start_time',
-            [$cid, $weekday]
-        );
-        $out = [];
-        foreach ($slots as $s) {
-            $out[] = substr((string)$s['start_time'], 0, 5) . '-' . substr((string)$s['end_time'], 0, 5);
-        }
-        // v2.5.0 排班钩子：插件可过滤/增强（例外停诊→空、限定时段→替换）
-        $out = \app\Core\Hook::fire('booking.slots', ['counselor_id' => $cid, 'date' => $date, 'slots' => $out])['slots'] ?? $out;
-        json_out(['ok' => true, 'slots' => $out]);
+        $day = \app\Services\BookingSlots::slotsFor($cid, $date);
+        // 兼容旧消费方：slots 为「HH:MM-HH:MM」字符串数组（含已占/不可约——与旧口径一致按模板给全量）
+        $legacy = [];
+        foreach ($day['slots'] as $s) { $legacy[] = $s['label']; }
+        // v2.5.0 排班钩子保留（schedule-pro 幂等增强）
+        $legacy = \app\Core\Hook::fire('booking.slots', ['counselor_id' => $cid, 'date' => $date, 'slots' => $legacy])['slots'] ?? $legacy;
+        json_out([
+            'ok' => true,
+            'slots' => $legacy,
+            'slots_full' => array_map(fn($s) => [
+                'label' => $s['label'], 'start' => $s['start'], 'end' => $s['end'], 'available' => $s['available'],
+            ], $day['slots']),
+            'leave' => $day['leave'], 'closed_note' => $day['closed_note'],
+            'confirm_url' => url('/booking/confirm'),
+        ]);
     }
 
     /** 凭码查询进度 */

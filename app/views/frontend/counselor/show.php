@@ -56,16 +56,32 @@
     <?php if (!empty($calendar)): ?>
     <section class="cp-section">
       <h2>未来两周可约日历</h2>
+      <?php if (!empty($calendar[0]['leave'])): ?>
+      <div class="alert alert-warning"><b><?= e($c['name']) ?> 当前请假暂停接单</b>——可提交预约申请，恢复后优先安排。</div>
+      <?php endif; ?>
       <div class="calendar-strip">
         <?php foreach ($calendar as $day): ?>
         <div class="cal-day">
-          <b><?= e($day['date']) ?></b>
+          <b><?= e($day['md']) ?></b>
           <span class="muted"><?= e($day['week']) ?></span>
-          <?php foreach ($day['slots'] as $t): ?><span class="chip"><?= e($t) ?></span><?php endforeach; ?>
+          <?php if ($day['closed_note'] !== null): ?>
+            <span class="chip" title="<?= e((string)$day['closed_note']) ?>">停诊</span>
+          <?php elseif ($day['leave']): ?>
+            <span class="chip">请假</span>
+          <?php else: ?>
+            <?php foreach ($day['slots'] as $t): ?>
+              <?php if ($t['available']): ?>
+              <a class="chip chip-link" href="<?= url('/booking/confirm?counselor=' . (int)$c['id'] . '&date=' . $day['ymd'] . '&start=' . urlencode($t['start'])) ?>" title="点击预约"><?= e($t['label']) ?></a>
+              <?php else: ?>
+              <span class="chip" style="opacity:.45;text-decoration:line-through" title="该时段已被约"><?= e($t['label']) ?></span>
+              <?php endif; ?>
+            <?php endforeach; ?>
+            <?php if (!$day['slots']): ?><span class="muted">无可约</span><?php endif; ?>
+          <?php endif; ?>
         </div>
         <?php endforeach; ?>
       </div>
-      <p class="muted">实际时间以确认回复为准，可点击上方「预约」直接选择。</p>
+      <p class="muted">点击可约时段直接进入预约确认；灰色时段已被预约。实际以确认信息为准。</p>
     </section>
     <?php endif; ?>
     <?php if ($slots): ?>
@@ -88,7 +104,7 @@
 
     <section class="cp-section" style="text-align:center;padding:30px 0">
       <h2 style="margin-bottom:16px">开始预约</h2>
-      <p class="muted" style="margin-bottom:18px">从 <?= e($c['name']) ?> 的可约时段中直接选择，预约成功后自动发送微信与短信提醒。</p>
-      <a class="btn btn-primary btn-lg" href="<?= url('/booking?counselor=' . (int)$c['id'] . '&source=counselor') ?>" style="padding:14px 40px;font-size:16px">立即预约 · 从可约时段中选择</a>
+      <p class="muted" style="margin-bottom:18px">点击上方可约时段直接预约；没有合适时段可提交预约申请，由机构协调安排。</p>
+      <a class="btn btn-primary btn-lg" href="<?= url('/booking?counselor=' . (int)$c['id'] . '&source=counselor') ?>" style="padding:14px 40px;font-size:16px">提交预约申请（非固定时段）</a>
       <p class="hint" style="margin-top:12px">预约需登录会员账号；登录后可在线支付并收到微信/短信提醒。</p>
     </section>

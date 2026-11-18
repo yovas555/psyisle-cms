@@ -53,8 +53,10 @@ class App
         $r->get('/search', 'Search@index');
         $r->get('/booking', 'Booking@create');
         $r->post('/booking', 'Booking@store');
+        $r->get('/booking/confirm', 'Booking@confirm');
         $r->get('/booking/check', 'Booking@check');
         $r->get('/booking/slots', 'Booking@slots');
+        $r->get('/n/{token:[a-f0-9]{16}}', 'NotifyClick@go');
         $r->get('/events', 'Event@index');
         $r->get('/events/{slug:\w[\w\-]*}', 'Event@show');
         $r->post('/events/{slug:\w[\w\-]*}/register', 'Event@register');

@@ -26,7 +26,7 @@ class User extends Base
         'display_name' => ['显示名', 'text', []],
         'email' => ['邮箱', 'text', []],
         'role_id' => ['角色', 'role_select', []],
-        'password' => ['密码', 'password', ['hint' => '编辑时留空表示不修改']],
+        'password' => ['密码', 'password', ['hint' => '至少 8 位，须包含大写字母、小写字母和数字；编辑时留空表示不修改']],
         'status' => ['启用', 'switch', []],
     ];
 
@@ -159,19 +159,12 @@ class User extends Base
         \app\Core\ResponseRedirect('/admin/users');
     }
 
-    /** 强密码策略：≥10 位，且至少包含大写/小写/数字/符号中的三类 */
+    /** 强密码策略（v2.17.0 统一 PasswordPolicy：≥8 位含大小写+数字） */
     private static function assertStrongPassword(string $pwd): void
     {
-        if (mb_strlen($pwd) < 10) {
-            throw new \RuntimeException('密码至少 10 位');
-        }
-        $classes = 0;
-        $classes += preg_match('/[a-z]/', $pwd) ? 1 : 0;
-        $classes += preg_match('/[A-Z]/', $pwd) ? 1 : 0;
-        $classes += preg_match('/\d/', $pwd) ? 1 : 0;
-        $classes += preg_match('/[^a-zA-Z\d]/', $pwd) ? 1 : 0;
-        if ($classes < 3) {
-            throw new \RuntimeException('密码需包含大写/小写/数字/符号中至少三类');
+        $err = \app\Core\PasswordPolicy::check($pwd);
+        if ($err !== null) {
+            throw new \RuntimeException($err);
         }
     }
 

@@ -1,93 +1,56 @@
-<?php /** 会员中心 · 登录 */ ?>
+<?php /** 会员登录 · 微信优先 + 密码登录（v2.16.0：去掉预约号登录） */
+$hubMode = (string)setting('wxhub.mode', 'direct') === 'hub';
+$wxReady = \app\Services\MemberService::current() !== null; // placeholder
+$inWx = stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'MicroMessenger') !== false;
+?>
 <div class="container member-wrap">
   <div class="member-login-card">
     <h1>会员中心</h1>
     <p class="muted">登录后可管理预约、查看测评记录、导出个人数据</p>
     <?php if (!empty($error)): ?><div class="alert alert-error"><?= e($error) ?></div><?php endif; ?>
 
-    <div class="member-tabs" role="tablist">
-      <button type="button" class="member-tab<?= ($mode ?? '') === 'password' ? '' : ' active' ?>" data-tab="code">预约号登录</button>
-      <?php if (!empty($smsReady)): ?><button type="button" class="member-tab" data-tab="sms">手机验证码</button><?php endif; ?>
-      <button type="button" class="member-tab<?= ($mode ?? '') === 'password' ? ' active' : '' ?>" data-tab="password">密码登录</button>
+    <?php /* ===== 微信登录（主入口，PC 扫码 / 微信内一键） ===== */ ?>
+    <div class="wx-login-section">
+      <?php
+        $wxhubMode = (string)setting('wxhub.mode', 'direct') === 'hub';
+        $wxhubReady = $wxhubMode && trim((string)setting('wxhub.site_key', '')) !== '';
+      ?>
+      <?php if ($inWx): ?>
+      <a class="btn btn-block wx-login-btn" href="<?= url($wxhubReady ? '/plugin/wxhub-client/login' : '/plugin/wechat-login/wxauth') ?>">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;margin-right:6px"><path d="M8.69 4C4.75 4 1.55 6.76 1.55 10.18c0 1.92 1.03 3.63 2.64 4.77l-.66 2.12 2.36-1.19c.86.26 1.79.4 2.8.4.25 0 .5-.01.74-.03-.15-.53-.23-1.08-.23-1.65 0-3.33 3.13-6.04 6.99-6.04.25 0 .49.01.73.03C15.36 5.86 12.3 4 8.69 4zm-2.53 3.29c.55 0 .99.44.99.99s-.44.99-.99.99-.99-.44-.99-.99.44-.99.99-.99zm5.06 0c.55 0 .99.44.99.99s-.44.99-.99.99-.99-.44-.99-.99.44-.99.99-.99zM16.8 12.85c-3.34 0-6.04 2.28-6.04 5.08 0 2.8 2.7 5.08 6.04 5.08.7 0 1.38-.11 2.01-.3l1.9.95-.53-1.65c1.5-1.04 2.66-2.55 2.66-4.08 0-2.8-2.7-5-6.04-5zm-2.13 2.13c.47 0 .85.38.85.85s-.38.85-.85.85-.85-.38-.85-.85.38-.85.85-.85zm4.26 0c.47 0 .85.38.85.85s-.38.85-.85.85-.85-.38-.85-.85.38-.85.85-.85z"/></svg>
+        微信一键登录
+      </a>
+      <?php else: ?>
+      <a class="btn btn-block wx-login-btn wx-qr-btn" href="<?= url($wxhubReady ? '/plugin/wxhub-client/login' : '/plugin/wechat-login/qr') ?>">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;margin-right:6px"><path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        微信扫码登录
+      </a>
+      <?php endif; ?>
+      <div class="wx-login-divider"><span>或使用密码登录</span></div>
     </div>
 
-    <form method="post" class="member-form<?= ($mode ?? '') === 'password' ? ' hidden' : '' ?>" id="tab-code">
-      <?= csrf_field() ?>
-      <input type="hidden" name="mode" value="code">
-      <label class="field"><span class="label">手机号</span>
-        <input type="tel" name="phone" required placeholder="预约时填写的手机号" maxlength="11">
-      </label>
-      <label class="field"><span class="label">预约查询码</span>
-        <input type="text" name="booking_code" required placeholder="见预约成功页 / 确认短信" maxlength="20">
-      </label>
-      <button class="btn btn-primary btn-block" type="submit">登录</button>
-      <p class="hint">没有预约记录？<a href="<?= url('/booking') ?>">先完成一次预约</a>或<a href="<?= url('/member/register') ?>">直接注册会员</a>。</p>
-    </form>
-
-    <form method="post" class="member-form<?= ($mode ?? '') === 'password' ? '' : ' hidden' ?>" id="tab-password">
+    <?php /* ===== 密码登录（折叠） ===== */ ?>
+    <form method="post" class="member-form" id="tab-password" action="<?= url('/member/login') ?>">
       <?= csrf_field() ?>
       <input type="hidden" name="mode" value="password">
       <label class="field"><span class="label">手机号</span>
-        <input type="tel" name="phone" required placeholder="注册会员的手机号" maxlength="11">
+        <input type="tel" name="phone" required maxlength="11" placeholder="注册手机号">
       </label>
       <label class="field"><span class="label">密码</span>
-        <input type="password" name="password" required autocomplete="current-password" placeholder="注册时设置的密码">
+        <input type="password" name="password" required placeholder="会员密码">
       </label>
-      <button class="btn btn-primary btn-block" type="submit">登录</button>
-      <p class="hint">还没有账号？<a href="<?= url('/member/register') ?>">注册会员</a>（手机号+密码，一分钟完成）。</p>
+      <button class="btn btn-primary btn-block" type="submit">密码登录</button>
+      <p class="hint"><a href="<?= url('/member/forgot-password') ?>">忘记密码？</a> · 没有账号？<a href="<?= url('/member/register') ?>">直接注册会员</a></p>
     </form>
-
-    <?php if (!empty($smsReady)): ?>
-    <form method="post" class="member-form hidden" id="tab-sms">
-      <?= csrf_field() ?>
-      <input type="hidden" name="mode" value="sms">
-      <label class="field"><span class="label">手机号</span>
-        <input type="tel" name="phone" id="smsPhone" required placeholder="会员手机号" maxlength="11">
-      </label>
-      <label class="field"><span class="label">短信验证码</span>
-        <div class="code-row">
-          <input type="text" name="code" required placeholder="6 位验证码" maxlength="6" inputmode="numeric">
-          <button type="button" class="btn btn-ghost" id="sendCodeBtn">发送验证码</button>
-        </div>
-      </label>
-      <button class="btn btn-primary btn-block" type="submit">登录</button>
-    </form>
-    <?php endif; ?>
-
-    <?php /* v2.7.0：微信登录等插件登录入口（Hook 注入，格式 ['label','url','style']） */
-      $loginExtras = \app\Core\Hook::fire('member.login.extras', ['buttons' => []])['buttons'] ?? [];
-      foreach ($loginExtras as $lx): ?>
-    <a class="btn btn-block" href="<?= url((string)$lx['url']) ?>" rel="nofollow" style="<?= e((string)($lx['style'] ?? 'background:#07c160;color:#fff')) ?>"><?= e((string)$lx['label']) ?></a>
-    <?php endforeach; ?>
   </div>
 </div>
-<script>
-document.addEventListener('click', function (e) {
-  var t = e.target.closest('.member-tab');
-  if (!t) return;
-  document.querySelectorAll('.member-tab').forEach(function (b) { b.classList.remove('active'); });
-  t.classList.add('active');
-  document.querySelectorAll('.member-form').forEach(function (f) { f.classList.add('hidden'); });
-  document.getElementById('tab-' + t.dataset.tab).classList.remove('hidden');
-});
-document.addEventListener('click', function (e) {
-  var btn = e.target.closest('#sendCodeBtn');
-  if (!btn) return;
-  var phone = (document.getElementById('smsPhone') || {}).value || '';
-  if (!/^1[3-9]\d{9}$/.test(phone)) { alert('请先填写正确的手机号'); return; }
-  var fd = new FormData();
-  fd.append('phone', phone);
-  fd.append('_token', (document.querySelector('input[name=_token]') || {}).value || '');
-  btn.disabled = true; btn.textContent = '发送中…';
-  fetch('<?= url('/member/login/send-code') ?>', { method: 'POST', body: fd, credentials: 'same-origin' })
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-      alert(d.ok ? (d.message || '已发送') : (d.error || '发送失败'));
-      var n = 60; var timer = setInterval(function () {
-        btn.textContent = '重发(' + (--n) + 's)';
-        if (n <= 0) { clearInterval(timer); btn.disabled = false; btn.textContent = '发送验证码'; }
-      }, 1000);
-    })
-    .catch(function () { btn.disabled = false; btn.textContent = '发送验证码'; });
-});
-</script>
+<style>
+.wx-login-section { margin: 18px 0 0; }
+.wx-login-btn { display: flex; align-items: center; justify-content: center; width: 100%; padding: 12px; border-radius: 8px; font-size: 15px; background: #07c160; color: #fff; border: none; cursor: pointer; text-decoration: none; }
+.wx-login-btn:hover { background: #06ad56; }
+.wx-qr-btn { background: #24292f; }
+.wx-qr-btn:hover { background: #383f45; }
+.wx-login-divider { display: flex; align-items: center; margin: 16px 0; color: #94a3b8; font-size: 13px; }
+.wx-login-divider::before, .wx-login-divider::after { content: ''; flex: 1; border-bottom: 1px solid #e2e8f0; }
+.wx-login-divider span { padding: 0 12px; white-space: nowrap; }
+</style>

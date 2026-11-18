@@ -29,6 +29,9 @@
     <label class="field"><span class="label">咨询语言</span>
       <input type="text" name="languages" maxlength="100" value="<?= e((string)$me['languages']) ?>" placeholder="普通话 / 英语">
     </label>
+      <label class="field"><span class="label">手机号（短信提醒）</span>
+        <input type="tel" name="phone" value="<?= e((string)($csl['phone'] ?? '')) ?>" maxlength="11" placeholder="接收预约提醒短信">
+      </label>
     <label class="field"><span class="label">头像路径</span>
       <div class="img-pick" data-name="avatar">
         <input type="text" name="avatar" value="<?= e((string)$me['avatar']) ?>" placeholder="上传或粘贴 /uploads/… 路径">

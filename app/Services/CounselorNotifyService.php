@@ -24,7 +24,9 @@ class CounselorNotifyService
         'booking_confirm' => '预约已确认',
         'booking_cancel' => '预约已取消',
         'booking_reschedule' => '会员申请改期',
-        'session_remind' => '咨询即将开始',
+        'booking_completed' => '咨询已完成',
+        'session_remind' => '今日咨询提醒',
+        'session_starting' => '咨询即将开始',
         'note_remind' => '小结待补充',
     ];
 

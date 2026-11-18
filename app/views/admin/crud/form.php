@@ -142,9 +142,9 @@ if ($isEdit && $baseSeg === 'counselors') {
 
   <?php if ($baseSeg === 'counselors'): ?>
   <label class="field field-full">
-    <span class="label">可预约时段（每行一条：星期|开始|结束，星期用数字 1-7，如 6|09:00|12:00）</span>
-    <textarea name="slots_text" rows="4" placeholder="6|09:00|12:00&#10;6|14:00|17:00&#10;3|19:00|21:00"><?= e($slotsText) ?></textarea>
-    <span class="hint">实际预约以人工确认为准；留空表示不展示时段表</span>
+    <span class="label">可预约时段（每行一条：星期|开始|结束[|单次分钟]，星期 1-7 周一至周日；单次分钟默认 50，范围 10-240）</span>
+    <textarea name="slots_text" rows="4" placeholder="6|09:00|12:00|50&#10;6|14:00|17:00&#10;3|19:00|21:00"><?= e($slotsText) ?></textarea>
+    <span class="hint">时段按「单次分钟」切片生成可约槽（如 09:00-12:00、50 分钟 → 09:00/09:50/10:40 各成一槽）；提前截止与缓冲由系统设置统一控制；留空表示不展示时段表</span>
   </label>
   <?php endif; ?>
   <?php /* v2.8.0 插件扩展点：stores-pro 注入门店选择等额外字段 */

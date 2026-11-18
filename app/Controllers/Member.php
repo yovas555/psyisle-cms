@@ -278,6 +278,43 @@ class Member
         \app\Core\ResponseRedirect('/');
     }
 
+    // ==================== 站内消息（v2.14 遗留方法补齐：路由已挂但方法缺失致 404） ====================
+
+    /** 站内消息列表 */
+    public function notifications(Request $req, array $p): void
+    {
+        $m = MemberService::current();
+        if (!$m) { \app\Core\ResponseRedirect('/member/login'); }
+        $rows = \app\Core\Database::fetchAll(
+            'SELECT * FROM member_notifications WHERE member_id=? ORDER BY id DESC LIMIT 50', [(int)$m['id']]);
+        $unread = (int)\app\Core\Database::value(
+            'SELECT COUNT(*) FROM member_notifications WHERE member_id=? AND is_read=0', [(int)$m['id']]);
+        $this->view('member/notifications', ['title' => '站内消息', 'rows' => $rows, 'unread' => $unread]);
+    }
+
+    /** 标记已读（同步写通知查阅回执——短信兜底取消信号） */
+    public function markRead(Request $req, array $p): void
+    {
+        Csrf::guard();
+        $m = MemberService::current();
+        if (!$m) { \app\Core\ResponseRedirect('/member/login'); }
+        $id = (int)$p['id'];
+        \app\Core\Database::run('UPDATE member_notifications SET is_read=1 WHERE id=? AND member_id=?', [$id, (int)$m['id']]);
+        \app\Services\MemberNotifyService::markEscalationReadByInapp((int)$m['id'], $id);
+        \app\Core\Session::flash('success', '已标记为已读');
+        \app\Core\ResponseRedirect('/member/notifications');
+    }
+
+    /** 未读数 JSON（前端徽标轮询） */
+    public function unreadJson(Request $req, array $p): void
+    {
+        $m = MemberService::current();
+        if (!$m) { json_out(['ok' => false, 'unread' => 0]); }
+        $unread = (int)\app\Core\Database::value(
+            'SELECT COUNT(*) FROM member_notifications WHERE member_id=? AND is_read=0', [(int)$m['id']]);
+        json_out(['ok' => true, 'unread' => $unread]);
+    }
+
     private function view(string $tpl, array $data = []): void
     {
         // 会员页自带 flash 渲染（前台布局无全局 flash）

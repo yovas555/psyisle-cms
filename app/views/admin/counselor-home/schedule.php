@@ -20,7 +20,7 @@
       <input type="hidden" name="act" value="override">
       <label class="field"><span class="label">日期</span><input type="date" name="date" required></label>
       <label class="field"><span class="label">类型</span>
-        <select name="status"><option value="off">停诊（当天不可约）</option><option value="on">限定开诊</option></select>
+        <select name="status"><option value="closed">停诊（当天不可约）</option><option value="open">限定开诊</option></select>
       </label>
       <label class="field"><span class="label">开始（限定开诊时填）</span><input type="time" name="start_time"></label>
       <label class="field"><span class="label">结束</span><input type="time" name="end_time"></label>
@@ -33,7 +33,8 @@
       <?php foreach ($overrides as $o): ?>
       <tr>
         <td><b><?= e((string)$o['date']) ?></b></td>
-        <td><?= $o['status'] === 'off' ? '<span class="chip err-text">停诊</span>' : '<span class="chip ok-text">限定开诊</span>' ?></td>
+        <td><?php $ovSt = (string)$o['status']; ?>
+            <?= in_array($ovSt, ['closed','off'], true) ? '<span class="chip err-text">停诊</span>' : '<span class="chip ok-text">限定开诊</span>' ?></td>
         <td class="muted"><?= e(trim((string)$o['start_time'] . ' - ' . (string)$o['end_time'], ' -') ?: '—') ?></td>
         <td class="muted"><?= e((string)$o['note']) ?></td>
         <td>

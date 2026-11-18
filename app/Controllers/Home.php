@@ -45,8 +45,9 @@ class Home
     private function homeData(): array
     {
         $banners = Database::fetchAll("SELECT * FROM banners WHERE position='home' AND status=1 ORDER BY sort LIMIT 5");
+        // v2.15.0：featured 优先 + 自动补足到 3 名（不足时取全部 active 咨询师）
         $featured = Database::fetchAll(
-            "SELECT name, slug, title, avatar, specialties, orientation FROM counselors WHERE status=1 AND is_featured=1 ORDER BY sort LIMIT 3"
+            "SELECT name, slug, title, avatar, specialties, orientation FROM counselors WHERE status=1 AND (is_featured=1 OR sort<=3) ORDER BY is_featured DESC, sort LIMIT 3"
         );
         if (!$featured) {
             $featured = Database::fetchAll(

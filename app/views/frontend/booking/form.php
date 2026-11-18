@@ -1,8 +1,12 @@
-<?php /** 预约表单 */ ?>
+<?php /** 预约申请表单（非固定时段；固定时段请从咨询师日历点击选择） */ ?>
 <section class="section">
   <div class="container narrow">
     <h1 class="page-title">预约咨询</h1>
     <p class="page-sub">提交后我们会尽快与你确认时间（通常 24 小时内）。信息严格保密。</p>
+    <div class="alert alert-info">
+      <b>这是预约申请通道</b>：适合没有固定排班时段、或希望由机构协调安排的情况。您填写的是<b>期望时间</b>，
+      <b>最终以机构确认信息为准</b>。想直接锁定具体时段？请在<a href="<?= url('/counselors') ?>">咨询师页面</a>点击可约时段。
+    </div>
 
     <?php $flashes = app\Core\Session::takeFlashes(); foreach ($flashes as $f): ?>
     <div class="alert alert-<?= e($f['type']) ?>"><?= e($f['msg']) ?></div>

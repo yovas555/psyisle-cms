@@ -579,6 +579,23 @@ CREATE TABLE `member_notify_log` (
   PRIMARY KEY (`id`), KEY `k_member` (`member_id`,`event`), KEY `k_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 通知兜底台账（v2.17.0：短信兜底制——微信/邮件推送 30 分钟无查阅回执 → Cron sweep 补发短信）
+CREATE TABLE `notify_escalations` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `member_id` int unsigned NOT NULL,
+  `event` varchar(30) NOT NULL,
+  `ref_type` varchar(20) NULL,
+  `ref_id` varchar(20) NULL,
+  `inapp_id` int unsigned NULL COMMENT '关联 member_notifications.id（已读=查阅）',
+  `click_token` char(16) NOT NULL COMMENT '中转短链 /n/{token}（点击=查阅）',
+  `wechat_ok` tinyint(1) NOT NULL DEFAULT 0,
+  `mail_ok` tinyint(1) NOT NULL DEFAULT 0,
+  `read_at` datetime NULL COMMENT '任一查阅信号落点（已读/点击）',
+  `sms_at` datetime NULL COMMENT '兜底短信处理时间（含无手机号/偏好关闭的跳过）',
+  `created_at` datetime NULL,
+  PRIMARY KEY (`id`), UNIQUE KEY `uk_token` (`click_token`), KEY `k_member` (`member_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 咨询套餐购买申请（v2.9.0：会员自助下单，线下收款模式；机构确认收款后入账）
 CREATE TABLE `package_requests` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,

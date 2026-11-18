@@ -26,8 +26,8 @@
           <button type="button" class="btn btn-ghost" id="sendSmsBtn">发送验证码</button>
         </div>
       </label>
-      <label class="field"><span class="label">新密码</span>
-        <input type="password" name="new_password" id="newPwd" required minlength="8" placeholder="至少 8 位新密码">
+      <label class="field"><span class="label">新密码（至少 8 位，含大写字母、小写字母和数字）</span>
+        <input type="password" name="new_password" id="newPwd" required minlength="8" placeholder="至少 8 位，含大小写字母和数字">
       </label>
       <button class="btn btn-primary btn-block" type="submit">重置密码</button>
     </form>

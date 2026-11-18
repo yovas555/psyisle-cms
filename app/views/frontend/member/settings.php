@@ -14,7 +14,7 @@
       <label class="field"><span class="label">当前密码<?= empty($m['password_hash']) ? '（首次设置可留空）' : '' ?></span>
         <input type="password" name="old_password" autocomplete="current-password" <?= empty($m['password_hash']) ? '' : 'required' ?>>
       </label>
-      <label class="field"><span class="label">新密码（至少 8 位，含字母和数字）</span>
+      <label class="field"><span class="label">新密码（至少 8 位，含大写字母、小写字母和数字）</span>
         <input type="password" name="new_password" required minlength="8" autocomplete="new-password">
       </label>
       <button class="btn btn-primary" type="submit"><?= empty($m['password_hash']) ? '设置密码' : '修改密码' ?></button>

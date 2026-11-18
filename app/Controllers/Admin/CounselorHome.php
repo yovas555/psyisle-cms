@@ -70,7 +70,7 @@ class CounselorHome extends Base
             $feeFrom = max(0, (int)round(((float)($d['fee_from'] ?? 0)) * 100));
             $feeTo = max(0, (int)round(((float)($d['fee_to'] ?? 0)) * 100));
             Database::run(
-                'UPDATE counselors SET title=?, orientation=?, specialties=?, introduction=?, education=?, experience=?, style=?, hours=?, languages=?, tags=?,
+                'UPDATE counselors SET title=?, orientation=?, specialties=?, introduction=?, education=?, experience=?, style=?, hours=?, languages=?, tags=?, phone=?,
                  fee_from=?, fee_to=?, fee_unit=?, avatar=?, updated_at=NOW() WHERE id=? AND user_id=?', [
                 str_take(trim((string)($d['title'] ?? '')), 80, ''),
                 str_take(trim((string)($d['orientation'] ?? '')), 120, ''),
@@ -82,6 +82,7 @@ class CounselorHome extends Base
                 str_take(trim((string)($d['hours'] ?? '')), 120, ''),
                 str_take(trim((string)($d['languages'] ?? '')), 100, ''),
                 str_take(trim((string)($d['tags'] ?? '')), 190, ''),
+                preg_match('/^1[3-9]\d{9}$/', trim((string)($d['phone'] ?? ''))) ? trim((string)$d['phone']) : null,
                 $feeFrom, $feeTo,
                 str_take(trim((string)($d['fee_unit'] ?? '')), 20, ''),
                 str_take(trim((string)($d['avatar'] ?? '')), 255, ''),
@@ -131,18 +132,20 @@ class CounselorHome extends Base
             Csrf::guard();
             $act = (string)$req->post('act', '');
             if ($act === 'slots') {
-                // 每行：星期|开始|结束
+                // 每行：星期|开始|结束[|单次分钟]（v2.17.0 支持第 4 列，默认 50，范围 10-240）
                 $lines = preg_split('/\r\n|\r|\n/', (string)$req->post('slots_text', '')) ?: [];
                 Database::run('DELETE FROM counselor_slots WHERE counselor_id=?', [$cid]);
                 foreach ($lines as $line) {
                     $parts = array_map('trim', explode('|', trim((string)$line)));
-                    if (count($parts) !== 3 || $parts[0] === '') continue;
+                    if (count($parts) < 3 || $parts[0] === '') continue;
                     $wd = (int)$parts[0];
                     if ($wd < 1 || $wd > 7) continue;
+                    $slotMin = (int)($parts[3] ?? 50);
+                    if ($slotMin < 10 || $slotMin > 240) $slotMin = 50;
                     Database::insert('counselor_slots', [
                         'counselor_id' => $cid, 'weekday' => $wd,
                         'start_time' => str_take($parts[1], 8, ''), 'end_time' => str_take($parts[2], 8, ''),
-                        'slot_minutes' => 60, 'status' => 1,
+                        'slot_minutes' => $slotMin, 'status' => 1,
                     ]);
                 }
                 Session::flash('success', '可约时段已更新');
@@ -151,10 +154,12 @@ class CounselorHome extends Base
             if ($act === 'override') {
                 $date = (string)$req->post('date', '');
                 if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+                    // v2.17.0 修复：状态值对齐 schedule-pro 的 closed/open（原 on/off 前台不识别，例外排班从不生效）
+                    $ovStatus = (string)$req->post('status', 'closed') === 'open' ? 'open' : 'closed';
                     Database::run('DELETE FROM schedule_overrides WHERE counselor_id=? AND date=?', [$cid, $date]);
                     Database::insert('schedule_overrides', [
                         'counselor_id' => $cid, 'date' => $date,
-                        'status' => $req->post('status', 'off') === 'on' ? 'on' : 'off',
+                        'status' => $ovStatus,
                         'start_time' => str_take(trim((string)$req->post('start_time', '')), 8, ''),
                         'end_time' => str_take(trim((string)$req->post('end_time', '')), 8, ''),
                         'note' => str_take(trim((string)$req->post('note', '')), 190, ''),

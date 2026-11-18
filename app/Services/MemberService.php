@@ -152,10 +152,8 @@ class MemberService
         $name = trim($name);
         $email = trim($email);
         if (!self::validPhone($phone)) return [false, '手机号格式不正确'];
-        if (strlen($password) < 8) return [false, '密码至少 8 位，建议混合字母与数字'];
-        if (!preg_match('/[0-9]/', $password) || !preg_match('/[A-Za-z]/', $password)) {
-            return [false, '密码需同时包含字母与数字'];
-        }
+        $pwdErr = \app\Core\PasswordPolicy::check($password);
+        if ($pwdErr !== null) return [false, $pwdErr];
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) return [false, '邮箱格式不正确'];
         if (mb_strlen($name) > 40) return [false, '称呼过长'];
         if (!RateLimiter::hit('member_register', $phone . '|' . ($_SERVER['REMOTE_ADDR'] ?? ''), 5, 3600)) {
@@ -192,8 +190,8 @@ class MemberService
     /** 修改密码（登录态；$old 为空且未设过密码时可直接设置） */
     public static function changePassword(array $m, string $old, string $new): array
     {
-        if (strlen($new) < 8) return [false, '新密码至少 8 位'];
-        if (!preg_match('/[0-9]/', $new) || !preg_match('/[A-Za-z]/', $new)) return [false, '新密码需同时包含字母与数字'];
+        $pwdErr = \app\Core\PasswordPolicy::check($new);
+        if ($pwdErr !== null) return [false, $pwdErr];
         $row = Database::fetch('SELECT password_hash FROM members WHERE id=?', [(int)$m['id']]);
         if ($row && !empty($row['password_hash'])) {
             if ($old === '' || !password_verify($old, (string)$row['password_hash'])) return [false, '当前密码不正确'];
@@ -295,6 +293,22 @@ class MemberService
         }
         Database::run("UPDATE bookings SET status='cancelled' WHERE id=?", [$bookingId]);
         NotifyService::push('booking', '会员取消预约', "查询码 {$b['code']}（" . self::maskPhone($m['phone']) . "）已由会员在自助中心取消", ['type' => 'booking', 'id' => $bookingId]);
+        // v2.17.0：自助取消 → 会员+咨询师双侧三通道
+        \app\Services\MemberNotifyService::push((int)$m['id'], 'booking_cancel', [
+            'title' => '预约已取消：' . (string)$b['code'],
+            'body' => (string)($b['prefer_date'] ?? '') . ' ' . (string)($b['prefer_slot'] ?? '') . ' · ' . (string)($b['method'] ?? ''),
+            'lines' => ['查询码' => (string)$b['code'], '时间' => trim((string)($b['prefer_date'] ?? '') . ' ' . (string)($b['prefer_slot'] ?? '')) ?: '待确认', '状态' => '已取消'],
+            'inapp_url' => '/member/bookings', 'ref_type' => 'booking', 'ref_id' => (string)$b['code'],
+            'booking' => ['id' => (int)$b['id'], 'code' => (string)$b['code'], 'phone' => (string)$m['phone']],
+        ]);
+        if ((int)($b['counselor_id'] ?? 0) > 0) {
+            \app\Services\CounselorNotifyService::push((int)$b['counselor_id'], 'booking_cancel', [
+                'title' => '会员取消预约：' . (string)$b['code'],
+                'body' => (string)($b['prefer_date'] ?? '') . ' ' . (string)($b['prefer_slot'] ?? '') . ' · 会员 ' . (string)$m['name'],
+                'url' => '/admin/counselor-home/bookings', 'booking_id' => (int)$b['id'],
+                'booking' => ['id' => (int)$b['id'], 'code' => (string)$b['code'], 'phone' => (string)$m['phone']],
+            ]);
+        }
         return [true, '预约已取消'];
     }
 
@@ -315,6 +329,23 @@ class MemberService
             Database::run('UPDATE bookings SET admin_note=CONCAT(COALESCE(admin_note,""),?) WHERE id=?', ["\n" . $note, $bookingId]);
         }
         NotifyService::push('booking', '会员申请改期', "查询码 {$b['code']}（" . self::maskPhone($m['phone']) . "）申请：{$note}", ['type' => 'booking', 'id' => $bookingId]);
+        // v2.17.0：改期申请 → 会员回执 + 咨询师知会（状态未变，机构确认后再推 booking_reschedule）
+        \app\Services\MemberNotifyService::push((int)$m['id'], 'booking_reschedule', [
+            'title' => '改期申请已提交：' . (string)$b['code'],
+            'body' => '希望改到 ' . $newDate . ($newSlot !== '' ? ' ' . $newSlot : ''),
+            'lines' => ['查询码' => (string)$b['code'], '原时间' => trim((string)($b['prefer_date'] ?? '') . ' ' . (string)($b['prefer_slot'] ?? '')) ?: '待确认', '期望时间' => $newDate . ($newSlot !== '' ? ' ' . $newSlot : '')],
+            'inapp_url' => '/member/bookings', 'ref_type' => 'booking', 'ref_id' => (string)$b['code'],
+            'note' => '机构确认后将通过微信/短信通知您，最终以确认信息为准。',
+            'booking' => ['id' => (int)$b['id'], 'code' => (string)$b['code'], 'phone' => (string)$m['phone']],
+        ]);
+        if ((int)($b['counselor_id'] ?? 0) > 0) {
+            \app\Services\CounselorNotifyService::push((int)$b['counselor_id'], 'booking_reschedule', [
+                'title' => '会员申请改期：' . (string)$b['code'],
+                'body' => '原 ' . (string)($b['prefer_date'] ?? '') . ' ' . (string)($b['prefer_slot'] ?? '') . ' → 期望 ' . $newDate . ($newSlot !== '' ? ' ' . $newSlot : ''),
+                'url' => '/admin/counselor-home/bookings', 'booking_id' => (int)$b['id'],
+                'booking' => ['id' => (int)$b['id'], 'code' => (string)$b['code'], 'phone' => (string)$m['phone']],
+            ]);
+        }
         return [true, '改期申请已提交，机构确认后将回电通知您'];
     }
 
@@ -372,7 +403,8 @@ class MemberService
         $phone = trim($phone);
         $code = trim($code);
         if (!preg_match('/^1[3-9]\d{9}$/', $phone) || !preg_match('/^\d{6}$/', $code)) return [false, '参数不正确'];
-        if (strlen($newPassword) < 8) return [false, '新密码至少 8 位'];
+        $pwdErr = \app\Core\PasswordPolicy::check($newPassword);
+        if ($pwdErr !== null) return [false, $pwdErr];
         $key = 'pwd_sms:' . hash('sha256', $phone);
         $row = json_decode((string)Cache::get($key), true);
         if (!is_array($row) || !hash_equals((string)($row['code'] ?? ''), $code)) return [false, '验证码不正确或已过期'];
@@ -408,8 +440,8 @@ class MemberService
 
     public static function resetPassword(string $token, string $newPassword): array
     {
-        if (strlen($newPassword) < 8 || !preg_match('/[0-9]/', $newPassword) || !preg_match('/[A-Za-z]/', $newPassword)) {
-            return [false, '新密码至少 8 位，需包含字母和数字'];
+        if (strlen($newPassword) < 8 || !preg_match('/[0-9]/', $newPassword) || !preg_match('/[A-Z]/', $newPassword) || !preg_match('/[a-z]/', $newPassword)) {
+            return [false, \app\Core\PasswordPolicy::RULE_TEXT];
         }
         $raw = Cache::get('pwd_reset:' . $token);
         $data = $raw ? json_decode((string)$raw, true) : null;

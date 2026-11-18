@@ -45,30 +45,35 @@ class Booking extends Base
         if (!$row) return;
         $newStatus = (string)($row['status'] ?? '');
         if ($newStatus === $this->oldStatus || $newStatus === '') return;
-        $m = Database::fetch('SELECT id FROM members WHERE phone=? AND status="active"', [(string)$row['phone']]);
+        self::notifyStatusChange($row, $newStatus);
+    }
+
+    /** v2.17.0：状态变更通知统一出口——会员+咨询师双侧三通道（afterSave 与 setStatus 共用；completed 也推送） */
+    private static function notifyStatusChange(array $row, string $newStatus): void
+    {
+        if (!in_array($newStatus, ['confirmed', 'completed', 'cancelled', 'rescheduled'], true)) return;
         $statusMap = ['confirmed' => '预约已确认', 'completed' => '咨询已完成', 'cancelled' => '预约已取消', 'rescheduled' => '预约已改期'];
         $label = $statusMap[$newStatus] ?? $newStatus;
         $when = (string)($row['prefer_date'] ?? '') . ' ' . (string)($row['prefer_slot'] ?? '');
-        $dataN = [
-            'title' => $label . '：' . (string)$row['code'],
-            'body' => $when . ' · ' . (string)($row['method'] ?? ''),
-            'lines' => ['查询码' => (string)$row['code'], '时间' => $when, '方式' => (string)($row['method'] ?? ''), '状态' => $label],
-            'inapp_url' => '/member/bookings', 'ref_type' => 'booking', 'ref_id' => (string)$row['code'],
-            'booking' => ['id' => (int)$row['id'], 'code' => (string)$row['code'], 'phone' => (string)$row['phone']],
-        ];
-        $event = $newStatus === 'confirmed' ? 'booking_confirm'
-            : ($newStatus === 'cancelled' ? 'booking_cancel'
-            : ($newStatus === 'rescheduled' ? 'booking_reschedule' : null));
-        if ($m && $event !== null) {
-            \app\Services\MemberNotifyService::push((int)$m['id'], $event, $dataN);
+        $code = (string)($row['code'] ?? '');
+        $mid = \app\Services\MemberNotifyService::memberIdByPhone((string)($row['phone'] ?? ''));
+        if ($mid > 0) {
+            \app\Services\MemberNotifyService::push($mid, 'booking_' . $newStatus, [
+                'title' => $label . '：' . $code,
+                'body' => $when . ' · ' . (string)($row['method'] ?? ''),
+                'lines' => ['查询码' => $code, '时间' => $when ?: '待确认', '方式' => (string)($row['method'] ?? ''), '状态' => $label],
+                'inapp_url' => '/member/bookings', 'ref_type' => 'booking', 'ref_id' => $code,
+                'note' => trim((string)($row['admin_note'] ?? '')) !== '' ? '机构留言：' . str_take((string)$row['admin_note'], 80, '') : '',
+                'booking' => ['id' => (int)$row['id'], 'code' => $code, 'phone' => (string)$row['phone']],
+            ]);
         }
         if ((int)($row['counselor_id'] ?? 0) > 0) {
-            \app\Services\CounselorNotifyService::push((int)$row['counselor_id'],
-                $newStatus === 'cancelled' ? 'booking_cancel' : ($newStatus === 'confirmed' ? 'booking_confirm' : 'booking_reschedule'),
-                ['title' => $label . '：' . (string)$row['code'],
-                 'body' => $when . ' · 会员 ' . (string)$row['name'],
-                 'url' => '/admin/counselor-home/bookings', 'booking_id' => (int)$row['id'],
-                 'booking' => ['id' => (int)$row['id'], 'code' => (string)$row['code'], 'phone' => (string)$row['phone']]]);
+            \app\Services\CounselorNotifyService::push((int)$row['counselor_id'], 'booking_' . $newStatus, [
+                'title' => $label . '：' . $code,
+                'body' => $when . ' · 会员 ' . (string)($row['name'] ?? ''),
+                'url' => '/admin/counselor-home/bookings', 'booking_id' => (int)$row['id'],
+                'booking' => ['id' => (int)$row['id'], 'code' => $code, 'phone' => (string)($row['phone'] ?? '')],
+            ]);
         }
     }
 
@@ -150,34 +155,20 @@ class Booking extends Base
         if (!in_array($status, ['pending','confirmed','rescheduled','completed','cancelled'], true)) {
             Session::flash('error', '状态不合法'); \app\Core\ResponseRedirect('/admin/bookings/' . $id . '/edit');
         }
+        $old = (string)(Database::value('SELECT status FROM bookings WHERE id=?', [$id]) ?? '');
         Database::update('bookings', [
             'status' => $status,
             'admin_note' => $note ?: null,
             'updated_at' => date('Y-m-d H:i:s'),
         ], 'id=?', [$id]);
         $this->audit('booking.status', 'bookings', $id, ['status' => $status, 'note' => $note]);
-        // v2.9.0：预约状态变更 → 通知会员（邮件主通道 + 微信双发，按偏好路由）
-        $b = Database::fetch('SELECT code, phone, name, prefer_date, prefer_slot FROM bookings WHERE id=?', [$id]);
-        // v2.12.0：预约状态变更 Hook（referral-pro 用于确认推荐发放积分；须在 $b 取得后携带完整上下文）
-        \app\Core\Hook::fire('booking.status_changed', ['booking_id' => $id, 'status' => $status, 'phone' => $b['phone'] ?? '', 'name' => $b['name'] ?? '']);
-        $mid = \app\Services\MemberNotifyService::memberIdByPhone((string)($b['phone'] ?? ''));
-        if ($mid > 0) {
-            $evMap = ['confirmed' => 'booking_confirm', 'cancelled' => 'booking_cancel', 'rescheduled' => 'booking_reschedule'];
-            $ev = $evMap[$status] ?? '';
-            if ($ev !== '') {
-                $verbed = ['confirmed' => '已确认', 'cancelled' => '已取消', 'rescheduled' => '已改期'][$status];
-                \app\Services\MemberNotifyService::push($mid, $ev, [
-                    'title' => '您的咨询预约' . $verbed,
-                    'lines' => [
-                        '查询码' => (string)($b['code'] ?? ''),
-                        '预约人' => (string)($b['name'] ?? ''),
-                        '期望时间' => trim((string)($b['prefer_date'] ?? '') . ' ' . (string)($b['prefer_slot'] ?? '')) ?: '待确认',
-                        '当前状态' => ['pending' => '待确认', 'confirmed' => '已确认', 'rescheduled' => '已改期', 'completed' => '已完成', 'cancelled' => '已取消'][$status] ?? $status,
-                    ],
-                    'note' => (string)$note !== '' ? '机构留言：' . $note : '',
-                    'url' => base_url() . '/member/bookings',
-                ]);
-            }
+        // v2.12.0：预约状态变更 Hook（referral-pro 用于确认推荐发放积分）
+        $b0 = Database::fetch('SELECT phone, name FROM bookings WHERE id=?', [$id]);
+        \app\Core\Hook::fire('booking.status_changed', ['booking_id' => $id, 'status' => $status, 'phone' => $b0['phone'] ?? '', 'name' => $b0['name'] ?? '']);
+        // v2.17.0：状态实际变化才通知，会员+咨询师双侧统一出口
+        if ($status !== $old) {
+            $b = Database::fetch('SELECT * FROM bookings WHERE id=?', [$id]);
+            if ($b) { self::notifyStatusChange($b, $status); }
         }
         Session::flash('success', '预约状态已更新');
         \app\Core\ResponseRedirect('/admin/bookings');

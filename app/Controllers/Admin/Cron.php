@@ -91,7 +91,9 @@ class Cron
         if (!$this->guard()) { http_response_code(403); echo 'forbidden'; exit; }
         $done = \app\Core\PluginManager::runCron('minutely');
         self::sessionReminders(); // v2.14.0：咨询提醒引擎（3h 短信 / 10min RTC 微信 / 1h 未确认短信）
-        echo json_encode(['ok' => true, 'jobs' => $done, 'reminders' => true], JSON_UNESCAPED_UNICODE);
+        // v2.17.0：短信兜底 sweep（推送 30 分钟未查阅 → 补发短信；notify_escalations 台账防重）
+        $smsFallback = \app\Services\MemberNotifyService::sweepEscalations();
+        echo json_encode(['ok' => true, 'jobs' => $done, 'reminders' => true, 'sms_fallback' => $smsFallback], JSON_UNESCAPED_UNICODE);
     }
 
     /**
@@ -120,22 +122,48 @@ class Cron
             $bid = (int)$b['id'];
             $when = date('H:i', $startTs);
             $mid = (int)($b['mid'] ?? 0);
-            // ① 前 3 小时短信（会员+咨询师）
-            if ($diff > 0 && $diff <= 3 * 3600 && $b['remind_sms_3h_at'] === null) {
-                Database::run('UPDATE bookings SET remind_sms_3h_at=NOW() WHERE id=?', [$bid]);
-                if ($smsReady) {
-                    $site = (string)setting('site.name', '');
-                    $label = '咨询即将开始';
-                    $param = json_encode(['site' => str_take($site, 12, ''), 'event' => str_take($label . '：' . (string)$b['code'], 20, ''), 'time' => $when], JSON_UNESCAPED_UNICODE);
-                    $phones = [];
-                    if ($mid > 0) $phones[] = (string)$b['phone'];
-                    if (!empty($b['csl_phone']) && preg_match('/^1[3-9]\d{9}$/', (string)$b['csl_phone'])) $phones[] = (string)$b['csl_phone'];
-                    foreach ($phones as $ph) {
-                        \plugins\smsnotify\Plugin::sendMemberSms($ph, ['site' => str_take($site, 12, ''), 'event' => str_take($label, 20, ''), 'time' => $when]);
-                    }
+            $site = (string)setting('site.name', '');
+            // ⓪ 前 30 分钟：双方微信提醒（全部咨询方式；member_notify_log/counselor_notify_log 20 分钟内去重）
+            if ($diff > 0 && $diff <= 30 * 60) {
+                if ($mid > 0
+                    && (int)Database::value("SELECT COUNT(*) FROM member_notify_log WHERE member_id=? AND event='session_starting' AND created_at >= NOW() - INTERVAL 20 MINUTE", [$mid]) === 0) {
+                    \app\Services\MemberNotifyService::push($mid, 'session_starting', [
+                        'title' => '咨询即将开始（' . $when . '）',
+                        'body' => mb_stripos((string)$b['method'], '视频') !== false ? '请提前进入咨询室做准备' : '请提前做好咨询准备',
+                        'lines' => ['咨询方式' => (string)$b['method'], '开始时间' => $when, '咨询师' => (string)($b['cname'] ?? '')],
+                        'inapp_url' => mb_stripos((string)$b['method'], '视频') !== false ? '/plugin/rtc-pro/room/' . $bid : '/member/bookings',
+                        'ref_type' => 'booking', 'ref_id' => (string)$b['code'],
+                    ]);
+                }
+                if ((int)($b['counselor_id'] ?? 0) > 0
+                    && (int)Database::value("SELECT COUNT(*) FROM counselor_notify_log WHERE counselor_id=? AND event='session_starting' AND created_at >= NOW() - INTERVAL 20 MINUTE", [(int)$b['counselor_id']]) === 0) {
+                    \app\Services\CounselorNotifyService::push((int)$b['counselor_id'], 'session_starting', [
+                        'title' => '咨询即将开始：' . (string)$b['name'] . '（' . $when . '）',
+                        'body' => (string)$b['method'] . ' · ' . mask_phone((string)$b['phone']),
+                        'url' => '/admin/counselor-home/bookings', 'booking_id' => $bid,
+                    ]);
                 }
             }
-            // ② 前 10 分钟：视频咨询服务号微信推送（移动端进房路径）
+            // ① 前 3 小时短信（会员+咨询师）；v2.17.0 修复：至少一条成功即置位（防重复轰炸），全失败下分钟重试
+            if ($diff > 0 && $diff <= 3 * 3600 && $b['remind_sms_3h_at'] === null) {
+                if ($smsReady) {
+                    $label = '咨询即将开始';
+                    $phones = [];
+                    if ($mid > 0 && preg_match('/^1[3-9]\d{9}$/', (string)$b['phone'])) $phones[] = (string)$b['phone'];
+                    if (!empty($b['csl_phone']) && preg_match('/^1[3-9]\d{9}$/', (string)$b['csl_phone'])) $phones[] = (string)$b['csl_phone'];
+                    $sentAny = false;
+                    foreach ($phones as $ph) {
+                        if (\plugins\smsnotify\Plugin::sendMemberSms($ph, ['site' => str_take($site, 12, ''), 'event' => str_take($label, 20, ''), 'time' => $when])) $sentAny = true;
+                    }
+                    if ($sentAny || !$phones) {
+                        Database::run('UPDATE bookings SET remind_sms_3h_at=NOW() WHERE id=?', [$bid]);
+                    }
+                } else {
+                    // 短信未配置：置位避免每分钟空转；配置后新预约自动生效
+                    Database::run('UPDATE bookings SET remind_sms_3h_at=NOW() WHERE id=?', [$bid]);
+                }
+            }
+            // ② 前 10 分钟：视频咨询会员进房推送（进房后 remind_wx_seen_at 由 rtc-pro 落点防重）
             $isVideo = mb_stripos((string)$b['method'], '视频') !== false;
             if ($isVideo && $diff > 0 && $diff <= 10 * 60 && $mid > 0 && $b['remind_wx_seen_at'] === null) {
                 \app\Services\MemberNotifyService::push($mid, 'session_room_open', [
@@ -146,15 +174,19 @@ class Cron
                     'ref_type' => 'booking', 'ref_id' => (string)$b['code'],
                 ]);
             }
-            // ③ 前 1 小时：未确认（未进房）→ 短信补推（会员+咨询师）
+            // ③ 前 1 小时：未确认（未进房）→ 短信补推（会员+咨询师）；至少一条成功即置位
             if ($diff > 0 && $diff <= 3600 && $b['remind_wx_seen_at'] === null && $b['remind_sms_1h_at'] === null) {
-                Database::run('UPDATE bookings SET remind_sms_1h_at=NOW() WHERE id=?', [$bid]);
                 if ($smsReady) {
-                    $site = (string)setting('site.name', '');
+                    $sentAny1h = false;
                     foreach (array_filter([(string)$b['phone'], (string)($b['csl_phone'] ?? '')]) as $ph) {
                         if (!preg_match('/^1[3-9]\d{9}$/', $ph)) continue;
-                        \plugins\smsnotify\Plugin::sendMemberSms($ph, ['site' => str_take($site, 12, ''), 'event' => str_take('咨询1小时后开始', 20, ''), 'time' => $when]);
+                        if (\plugins\smsnotify\Plugin::sendMemberSms($ph, ['site' => str_take($site, 12, ''), 'event' => str_take('咨询1小时后开始', 20, ''), 'time' => $when])) $sentAny1h = true;
                     }
+                    if ($sentAny1h) {
+                        Database::run('UPDATE bookings SET remind_sms_1h_at=NOW() WHERE id=?', [$bid]);
+                    }
+                } else {
+                    Database::run('UPDATE bookings SET remind_sms_1h_at=NOW() WHERE id=?', [$bid]);
                 }
             }
         }

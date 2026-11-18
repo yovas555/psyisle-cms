@@ -66,23 +66,8 @@ class Counselor
             'SELECT weekday, start_time, end_time FROM counselor_slots WHERE counselor_id=? AND status=1 ORDER BY weekday, start_time',
             [$c['id']]
         );
-        // 未来 14 天可约日历（按 counselor_slots 模板生成）
-        $calendar = [];
-        if ($slots) {
-            for ($i = 1; $i <= 14; $i++) {
-                $ts = strtotime("+{$i} days");
-                $wd = (int)date('N', $ts);
-                $daySlots = [];
-                foreach ($slots as $sl) {
-                    if ((int)$sl['weekday'] === $wd) {
-                        $daySlots[] = substr((string)$sl['start_time'], 0, 5) . '-' . substr((string)$sl['end_time'], 0, 5);
-                    }
-                }
-                if ($daySlots) {
-                    $calendar[] = ['date' => date('m-d', $ts), 'week' => '周' . mb_substr('一二三四五六日', $wd - 1, 1), 'slots' => $daySlots];
-                }
-            }
-        }
+        // v2.17.0：未来 14 天可约日历走统一槽位服务（切片/例外/请假/占用/提前截止），时段可点击进确认页
+        $calendar = \app\Services\BookingSlots::days((int)$c['id'], 14, 1, true);
         $services = Database::fetchAll('SELECT name, slug, price_from, price_to FROM services WHERE status=1 ORDER BY sort LIMIT 6');
 
         $meta = SeoService::meta(

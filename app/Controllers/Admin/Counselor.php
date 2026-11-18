@@ -59,20 +59,23 @@ class Counselor extends Base
 
     protected function afterSave(array $data, int $id, string $mode): void
     {
-        // 保存可约时段（简化：从表单 slots 文本行解析 "1|19:00|21:00"）
+        // 保存可约时段（v2.17.0：每行「星期|开始|结束[|单次分钟]」，第 4 列可选默认 50，范围 10-240）
         $slots = (string)($_POST['slots_text'] ?? '');
         Database::delete('counselor_slots', 'counselor_id=?', [$id]);
         foreach (preg_split('/[\r\n]+/', trim($slots)) as $line) {
             $line = trim($line);
             if ($line === '') continue;
             $parts = array_map('trim', explode('|', $line));
-            if (count($parts) !== 3 || !isset($parts[0], $parts[1], $parts[2])) continue;
+            if (count($parts) < 3 || !isset($parts[0], $parts[1], $parts[2])) continue;
             [$wd, $st, $et] = $parts;
             if (!isset($wd[0]) || (int)$wd < 1 || (int)$wd > 7) continue;
+            $slotMin = (int)($parts[3] ?? 50);
+            if ($slotMin < 10 || $slotMin > 240) $slotMin = 50;
+            if (!preg_match('/^\d{1,2}:\d{2}$/', $st) || !preg_match('/^\d{1,2}:\d{2}$/', $et)) continue;
             Database::insert('counselor_slots', [
                 'counselor_id' => $id, 'weekday' => (int)$wd,
                 'start_time' => $st . ':00', 'end_time' => $et . ':00',
-                'slot_minutes' => 50, 'status' => 1,
+                'slot_minutes' => $slotMin, 'status' => 1,
             ]);
         }
     }
