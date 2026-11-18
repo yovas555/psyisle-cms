@@ -184,7 +184,8 @@ class DistributeService
     {
         if (!in_array($kind, ['core', 'plugin'], true)) return [false, 'kind 非法'];
         if ($kind === 'core' && !preg_match('/^\d+\.\d+\.\d+$/', $version)) return [false, '核心版本号非法'];
-        $exists = Database::fetch("SELECT id FROM upgrade_packages WHERE kind=? AND slug=? AND version=?", [$kind, $slug ?: null, $version]);
+        // slug 用 NULL 安全等值比较（核心包 slug=NULL，`slug=NULL` 永不匹配会导致同版本重登记插重复行）
+        $exists = Database::fetch("SELECT id FROM upgrade_packages WHERE kind=? AND slug<=>? AND version=?", [$kind, $slug ?: null, $version]);
         $row = [
             'kind' => $kind, 'slug' => $slug ?: null, 'version' => $version,
             'file_path' => 'storage/releases/' . $file, 'md5' => $md5, 'size' => $size,

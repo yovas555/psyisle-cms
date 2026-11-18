@@ -167,7 +167,7 @@ class MemberNotifyService
                     $site = (string)setting('site.name', '');
                     $label = self::EVENTS[$event] ?? '通知';
                     $ok = \plugins\smsnotify\Plugin::sendMemberSms((string)$m['phone'],
-                        ['site' => str_take($site, 12, ''), 'event' => str_take($label . '：' . $title, 20, ''), 'time' => date('m-d H:i')]);
+                        ['store' => str_take($site, 12, ''), 'event' => str_take($label . '：' . $title, 20, ''), 'time' => date('m-d H:i')]);
                     self::log((int)$m['id'], $event, 'sms', $ok ? 'ok' : 'fail', $ok ? null : '阿里云发送失败（看 sms-notify 日志）', $title);
                 } else {
                     self::log((int)$m['id'], $event, 'sms', 'skipped', '短信通道未启用或偏好关闭', $title);
@@ -324,7 +324,7 @@ class MemberNotifyService
                 $site = (string)setting('site.name', '');
                 $label = self::EVENTS[(string)$e['event']] ?? '通知';
                 $ok = \plugins\smsnotify\Plugin::sendMemberSms($phone,
-                    ['site' => str_take($site, 12, ''), 'event' => str_take($label . '（提醒查阅）', 20, ''), 'time' => date('m-d H:i')]);
+                    ['store' => str_take($site, 12, ''), 'event' => str_take($label . '（提醒查阅）', 20, ''), 'time' => date('m-d H:i')]);
                 Database::run('UPDATE notify_escalations SET sms_at=NOW() WHERE id=?', [(int)$e['id']]);
                 self::log((int)$e['member_id'], (string)$e['event'], 'sms', $ok ? 'ok' : 'fail',
                     $ok ? null : '短信兜底发送失败', $label . '（30 分钟未查阅兜底）');

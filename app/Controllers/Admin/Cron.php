@@ -153,7 +153,7 @@ class Cron
                     if (!empty($b['csl_phone']) && preg_match('/^1[3-9]\d{9}$/', (string)$b['csl_phone'])) $phones[] = (string)$b['csl_phone'];
                     $sentAny = false;
                     foreach ($phones as $ph) {
-                        if (\plugins\smsnotify\Plugin::sendMemberSms($ph, ['site' => str_take($site, 12, ''), 'event' => str_take($label, 20, ''), 'time' => $when])) $sentAny = true;
+                        if (\plugins\smsnotify\Plugin::sendMemberSms($ph, ['store' => str_take($site, 12, ''), 'event' => str_take($label, 20, ''), 'time' => $when])) $sentAny = true;
                     }
                     if ($sentAny || !$phones) {
                         Database::run('UPDATE bookings SET remind_sms_3h_at=NOW() WHERE id=?', [$bid]);
@@ -180,7 +180,7 @@ class Cron
                     $sentAny1h = false;
                     foreach (array_filter([(string)$b['phone'], (string)($b['csl_phone'] ?? '')]) as $ph) {
                         if (!preg_match('/^1[3-9]\d{9}$/', $ph)) continue;
-                        if (\plugins\smsnotify\Plugin::sendMemberSms($ph, ['site' => str_take($site, 12, ''), 'event' => str_take('咨询1小时后开始', 20, ''), 'time' => $when])) $sentAny1h = true;
+                        if (\plugins\smsnotify\Plugin::sendMemberSms($ph, ['store' => str_take($site, 12, ''), 'event' => str_take('咨询1小时后开始', 20, ''), 'time' => $when])) $sentAny1h = true;
                     }
                     if ($sentAny1h) {
                         Database::run('UPDATE bookings SET remind_sms_1h_at=NOW() WHERE id=?', [$bid]);

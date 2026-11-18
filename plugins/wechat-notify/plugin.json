@@ -1,0 +1,123 @@
+{
+    "slug": "wechat-notify",
+    "name": "微信服务号通知",
+    "version": "1.0.5",
+    "author": "PsyIsle Official",
+    "description": "关键事件实时推送到机构管理员的微信服务号（模板消息）：新预约、咨询留言、AI 转人工、危机预警等。支持事件级模板配置、夜间免打扰延迟不丢失、发送失败自动降级邮件、到达率统计。",
+    "min_cms_version": "2.16.0",
+    "permissions": [
+        "hooks",
+        "cron",
+        "admin_menu",
+        "settings"
+    ],
+    "cron": [
+        {
+            "schedule": "minutely",
+            "action": "flushQueue"
+        }
+    ],
+    "admin_menu": {
+        "title": "微信通知",
+        "icon": "💬",
+        "path": "",
+        "group": "渠道与自动化"
+    },
+    "settings": [
+        {
+            "key": "wechat.enabled",
+            "label": "启用微信通知",
+            "type": "switch",
+            "default": "0",
+            "help": "需认证服务号；配置 AppID/Secret 并申请模板消息后开启"
+        },
+        {
+            "key": "wechat.appid",
+            "label": "公众号 AppID",
+            "type": "text"
+        },
+        {
+            "key": "wechat.secret",
+            "label": "公众号 AppSecret（加密存储）",
+            "type": "password"
+        },
+        {
+            "key": "wechat.admin_openids",
+            "label": "接收人 OpenID（多个用 ; 分隔）",
+            "type": "textarea",
+            "rows": 2,
+            "help": "机构管理员/值班人员关注服务号后的 OpenID（开发者工具-用户列表可查）"
+        },
+        {
+            "key": "wechat.tpl_booking",
+            "label": "模板ID：新预约",
+            "type": "text",
+            "help": "模板字段命名须含 first、keyword1、keyword2、keyword3、remark"
+        },
+        {
+            "key": "wechat.tpl_message",
+            "label": "模板ID：咨询留言",
+            "type": "text"
+        },
+        {
+            "key": "wechat.tpl_escalate",
+            "label": "模板ID：AI 转人工",
+            "type": "text"
+        },
+        {
+            "key": "wechat.tpl_crisis",
+            "label": "模板ID：危机预警",
+            "type": "text",
+            "help": "危机预警不受免打扰限制，即时送达"
+        },
+        {
+            "key": "wechat.tpl_system",
+            "label": "模板ID：系统/升级/授权/活动",
+            "type": "text"
+        },
+        {
+            "key": "wechat.on_booking",
+            "label": "新预约",
+            "type": "switch",
+            "default": "1"
+        },
+        {
+            "key": "wechat.on_message",
+            "label": "咨询留言",
+            "type": "switch",
+            "default": "1"
+        },
+        {
+            "key": "wechat.on_chat_question",
+            "label": "访客提问",
+            "type": "switch",
+            "default": "0"
+        },
+        {
+            "key": "wechat.on_chat_escalate",
+            "label": "AI 转人工 / 疑似未答",
+            "type": "switch",
+            "default": "1"
+        },
+        {
+            "key": "wechat.on_event",
+            "label": "活动报名",
+            "type": "switch",
+            "default": "1"
+        },
+        {
+            "key": "wechat.on_system",
+            "label": "系统事件（备份/完整性/升级）",
+            "type": "switch",
+            "default": "1"
+        },
+        {
+            "key": "wechat.on_license",
+            "label": "授权变更",
+            "type": "switch",
+            "default": "1"
+        }
+    ],
+    "signature": "JKsyZmcSPDKHWgxYzi3pR/BWDs0Jhu+JLv6B+FhlTDYAwPXpc6XFqZOWcxZeHmFz4M6oHnULz8d/Fn2zWI61DQ==",
+    "changelog": "v1.0.5：会员模板消息带中转短链 url（/n/{token}，点击采集查阅回执）；清理死代码\nv1.0.4：新增 booking_completed 事件（咨询完成推送，复用 tpl_message 字段契约）\nv1.0.3：补齐 1.0.2 发行包缺失的会员服务号推送响应者（Hook member.notify.wechat）；min_cms 提升至 2.16.0（通知矩阵属 2.16 核心能力）\nv1.0.2：新增会员服务号推送（Hook member.notify.wechat，模板按中台模板池字段映射）；accessToken 失败改抛异常便于上层降级\nv1.0.1：后台导航分组（v2.8.1 导航重组）\nv1.0.0 首发：模板消息推送、免打扰延迟队列、失败降级邮件、到达率统计"
+}
