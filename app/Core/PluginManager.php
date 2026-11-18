@@ -170,9 +170,9 @@ class PluginManager
             if (!array_key_exists($pk, $post)) continue;
             $val = trim((string)$post[$pk]);
             if ($type === 'number' && $val !== '' && !is_numeric($val)) continue;
-            // 敏感配置：掩码/空值不修改，新值加密
+            // 敏感配置：掩码/空值不修改（v2.17.0 修复：空值此前会 encrypt('') 覆盖已有密钥——升级验收保存一次即抹掉 site_secret 的事故根因），新值加密
             if (Crypto::isSecretKey($key)) {
-                if (Crypto::isMask($val)) continue;
+                if (Crypto::isMask($val) || $val === '') continue;
                 $val = Crypto::encrypt($val);
             }
             Model::saveSetting($key, $val, 'plugin:' . $slug);

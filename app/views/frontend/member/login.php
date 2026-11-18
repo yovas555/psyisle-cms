@@ -21,7 +21,7 @@ $inWx = stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'MicroMessenger') !== false;
         微信一键登录
       </a>
       <?php else: ?>
-      <a class="btn btn-block wx-login-btn wx-qr-btn" href="<?= url($wxhubReady ? '/plugin/wxhub-client/login' : '/plugin/wechat-login/qr') ?>">
+      <a class="btn btn-block wx-login-btn wx-qr-btn" href="<?= url($wxhubReady ? '/plugin/wxhub-client/qr' : '/plugin/wechat-login/qr') ?>">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;margin-right:6px"><path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
         微信扫码登录
       </a>

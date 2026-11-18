@@ -119,9 +119,9 @@ class Setting extends Base
             if (isset($switches[$key])) continue; // 开关已处理
             if (!array_key_exists($postKey, $post)) continue;
             $val = (string)$post[$postKey];
-            // 敏感键：掩码/空值表示不修改；新值加密存储
+            // 敏感键：掩码/空值表示不修改（v2.17.0 修复：空值此前会覆盖已有密钥）；新值加密存储
             if (\app\Core\Crypto::isSecretKey($key)) {
-                if (\app\Core\Crypto::isMask($val)) { continue; }
+                if (\app\Core\Crypto::isMask($val) || $val === '') { continue; }
                 $val = \app\Core\Crypto::encrypt($val);
             }
             \app\Core\Model::saveSetting($key, $val, $group);

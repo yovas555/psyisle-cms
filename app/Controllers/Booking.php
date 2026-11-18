@@ -178,6 +178,9 @@ class Booking
             if ($amountCents === null || $amountCents <= 0) { $payStatus = 'free'; } // 咨询师未定价 → 免费占位（线下沟通）
             else { $payStatus = 'unpaid'; }
         }
+        // v2.17.0 用户拍板：可用时段内的预约**免机构确认**——无需支付的（面对面/电话/未定价）提交即确认；
+        // 需在线支付的先 pending，支付成功后由 wechat-pay 自动确认（applyCredit）
+        $autoConfirmed = $isSlotMode && $payStatus === 'free';
         $id = Database::insert('bookings', array_merge([
             'code' => $code,
             'service_id' => (int)($data['service_id'] ?? 0) ?: null,
@@ -193,7 +196,7 @@ class Booking
             'prefer_slot' => mb_substr((string)($data['prefer_slot'] ?? ''), 0, 59),
             'issue' => mb_substr((string)($data['issue'] ?? ''), 0, 999),
             'urgency' => !empty($data['urgency']) ? 1 : 0,
-            'status' => 'pending',
+            'status' => $autoConfirmed ? 'confirmed' : 'pending',
             // v2.13.0：线上咨询定价与支付状态（面对面/电话默认 free 线下结算；视频按时段价在线支付）
             'amount_cents' => $amountCents,
             'pay_status' => $payStatus,
@@ -216,26 +219,32 @@ class Booking
         if (($extra['note'] ?? '') !== '') { $body .= "\n" . (string)$extra['note']; }
         NotifyService::push(
             'booking',
-            '收到新预约（' . ($data['urgency'] ? '标注紧急' : '常规') . '）',
-            $body,
+            $autoConfirmed
+                ? '时段预约已自动生效（' . ($data['urgency'] ? '标注紧急' : '常规') . '）'
+                : '收到新预约（' . ($data['urgency'] ? '标注紧急' : '常规') . '）',
+            $body . ($autoConfirmed ? "\n【免确认通道】该预约来自可约时段，已自动确认" . ($payStatus === 'unpaid' ? '，待支付' : '') : ''),
             ['type' => 'booking', 'id' => $id],
             true
         );
-        Logger::info('booking', 'new booking', ['id' => $id]);
+        Logger::info('booking', 'new booking', ['id' => $id, 'auto_confirmed' => $autoConfirmed]);
         // v2.9.0：预约提交回执 → 通知会员（登录会员或手机号匹配的会员；v2.17.0 合并去重，只推一次）
 
-        // 若留了邮箱，队列发送预约确认邮件（SMTP 配置后自动生效）
+        // 若留了邮箱，队列发送预约确认邮件（SMTP 配置后自动生效；时段预约=成功邮件）
         $email = trim((string)($data['email'] ?? ''));
         if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $siteName = (string)setting('site.name', '一二三');
+            $mailTitle = $autoConfirmed ? '预约成功' : '预约已收到';
+            $mailHead = $autoConfirmed
+                ? (string)$data['prefer_date'] . ' ' . (string)($data['prefer_slot'] ?? '') . ' 的预约已生效'
+                : '我们已收到你的预约，会在工作时间尽快与你确认具体时间。';
             $confirmHtml = '<div style="font-family:-apple-system,\'PingFang SC\',sans-serif;max-width:560px;margin:0 auto">'
-                . '<h2 style="color:#2a9d8f">预约已收到</h2>'
-                . '<p>' . e((string)$data['name']) . '，您好！我们已收到你的预约，会在工作时间尽快与你确认具体时间。</p>'
+                . '<h2 style="color:#2a9d8f">' . $mailTitle . '</h2>'
+                . '<p>' . e((string)$data['name']) . '，您好！' . e($mailHead) . '</p>'
                 . '<p style="background:#f0fdf4;padding:12px 16px;border-radius:8px">预约查询码：<strong>' . e($code) . '</strong>（凭此码+手机号可随时 <a href="' . url('/booking/check') . '">查询进度</a>）</p>'
                 . '<p style="color:#64748b;font-size:13px">如需改期或取消，请回复本邮件或拨打 ' . e(setting('contact.phone', '我们的电话')) . '。<br>—— ' . e($siteName) . '</p></div>';
             try {
                 Database::insert('email_queue', [
-                    'to_email' => $email, 'subject' => '【' . $siteName . '】预约确认（查询码 ' . $code . '）',
+                    'to_email' => $email, 'subject' => '【' . $siteName . '】' . $mailTitle . '（查询码 ' . $code . '）',
                     'body_html' => $confirmHtml, 'priority' => 3, 'status' => 'queued',
                     'scheduled_at' => date('Y-m-d H:i:s'), 'created_at' => date('Y-m-d H:i:s'),
                 ]);
@@ -244,23 +253,27 @@ class Booking
             }
         }
         // v2.14.0：会员三通道（站内/微信/短信）+ 咨询师三通道
+        // v2.17.0：免确认时段预约 → 事件用 booking_confirm（预约成功），申请通道仍为 booking_new
+        $notifyEvent = $autoConfirmed ? 'booking_confirm' : 'booking_new';
         $notifyMid = $mCur2 ? (int)$mCur2['id'] : \app\Services\MemberNotifyService::memberIdByPhone((string)$data['phone']);
         $notifyData = [
-            'title' => '预约已提交：' . $code,
+            'title' => ($autoConfirmed ? '预约成功' : '预约已提交') . '：' . $code,
             'body' => ($data['prefer_date'] ?: '待定') . ' ' . ($data['prefer_slot'] ?? '') . ' · ' . ($data['method'] ?? ''),
-            'lines' => ['查询码' => $code, '日期' => $data['prefer_date'] ?: '不限', '时段' => $data['prefer_slot'] ?? '', '方式' => $data['method'] ?? ''],
+            'lines' => ['查询码' => $code, '日期' => $data['prefer_date'] ?: '不限', '时段' => $data['prefer_slot'] ?? '', '方式' => $data['method'] ?? '',
+                '状态' => $autoConfirmed ? '已确认生效' : '待机构确认'],
             'inapp_url' => '/member/bookings', 'ref_type' => 'booking', 'ref_id' => $code,
+            'note' => $autoConfirmed ? '本次预约来自可约时段，无需机构确认，直接生效。' : '',
             'booking' => ['id' => $id, 'code' => $code, 'phone' => (string)$data['phone'], 'name' => (string)$data['name'],
                 'prefer_date' => $data['prefer_date'], 'prefer_slot' => $data['prefer_slot'], 'counselor_id' => (int)($data['counselor_id'] ?? 0)],
         ];
         if ($mCur2) {
-            \app\Services\MemberNotifyService::push((int)$mCur2['id'], 'booking_new', $notifyData);
+            \app\Services\MemberNotifyService::push((int)$mCur2['id'], $notifyEvent, $notifyData);
         } elseif ((int)$notifyMid > 0) {
-            \app\Services\MemberNotifyService::push((int)$notifyMid, 'booking_new', $notifyData);
+            \app\Services\MemberNotifyService::push((int)$notifyMid, $notifyEvent, $notifyData);
         }
         if ((int)($data['counselor_id'] ?? 0) > 0) {
-            \app\Services\CounselorNotifyService::push((int)$data['counselor_id'], 'booking_new', [
-                'title' => '新预约：' . (string)$data['name'] . '（' . mask_phone((string)$data['phone']) . '）',
+            \app\Services\CounselorNotifyService::push((int)$data['counselor_id'], $notifyEvent, [
+                'title' => ($autoConfirmed ? '预约成功（免确认）' : '新预约') . '：' . (string)$data['name'] . '（' . mask_phone((string)$data['phone']) . '）',
                 'body' => ($data['prefer_date'] ?: '待定') . ' ' . ($data['prefer_slot'] ?? '') . ' · ' . ($data['method'] ?? ''),
                 'url' => '/admin/counselor-home/bookings', 'booking_id' => $id,
                 'booking' => ['id' => $id, 'code' => $code, 'phone' => (string)$data['phone']],
@@ -272,6 +285,7 @@ class Booking
             'method' => (string)($data['method'] ?? ''),
             'id' => $id,
             'slot_mode' => $isSlotMode,
+            'confirmed' => $autoConfirmed,
         ]);
         // v2.17.0：槽位预约且需在线支付 → 登录会员直接进收银台；未登录到成功页引导登录后支付
         if ($isSlotMode && $amountCents !== null && $mCur2) {
