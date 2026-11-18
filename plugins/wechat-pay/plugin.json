@@ -1,0 +1,101 @@
+{
+    "slug": "wechat-pay",
+    "name": "微信支付",
+    "name_zh": "微信支付（咨询套餐在线收款）",
+    "version": "1.2.0",
+    "author": "PsyIsle Official",
+    "description": "微信支付 V3（官方 API，SHA256-RSA2048 签名 + 回调 AES-256-GCM 解密验签）：PC 扫码 Native 支付 + 微信内 JSAPI 支付，与咨询套餐插件联动——会员自助购买套餐、支付成功自动入账、金额核对与幂等防重、失败补入账后台兜底、每日对账。",
+    "min_cms_version": "2.6.0",
+    "permissions": [
+        "hooks",
+        "cron",
+        "admin_menu",
+        "settings",
+        "routes",
+        "frontend"
+    ],
+    "cron": [
+        {
+            "schedule": "daily",
+            "action": "reconcile"
+        }
+    ],
+    "admin_menu": {
+        "title": "咨询套餐",
+        "icon": "💰",
+        "path": "",
+        "group": "微信生态"
+    },
+    "settings": [
+        {
+            "key": "wxpay.enabled",
+            "label": "启用微信支付",
+            "type": "switch",
+            "default": "0",
+            "help": "需微信商户号（已开通 JSAPI/Native 支付）；启用后会员中心出现「购买套餐」"
+        },
+        {
+            "key": "wxpay.appid",
+            "label": "支付 AppID",
+            "type": "text",
+            "help": "商户号绑定的公众号/小程序 AppID（JSAPI 支付主体）"
+        },
+        {
+            "key": "wxpay.mchid",
+            "label": "商户号 mchid",
+            "type": "text"
+        },
+        {
+            "key": "wxpay.mch_serial_no",
+            "label": "商户 API 证书序列号",
+            "type": "text",
+            "help": "商户平台 → API 安全 → API 证书详情页查看"
+        },
+        {
+            "key": "wxpay.apiv3_key",
+            "label": "APIv3 密钥（加密存储）",
+            "type": "password",
+            "help": "商户平台 → API 安全 → APIv3 密钥（32 位）"
+        },
+        {
+            "key": "wxpay.mch_key_secret",
+            "label": "商户私钥 apiclient_key.pem 内容（加密存储）",
+            "type": "textarea",
+            "rows": 4,
+            "help": "粘贴 apiclient_key.pem 全文（含 BEGIN/END 行）；保存后加密存储、界面不再回显"
+        },
+        {
+            "key": "wxpay.verify_mode",
+            "label": "回调验签模式",
+            "type": "select",
+            "options": [
+                "public_key",
+                "platform_cert"
+            ],
+            "default": "public_key",
+            "help": "2024-10 后新商户用「微信支付公钥」；老商户选「平台证书」自动下载"
+        },
+        {
+            "key": "wxpay.public_key_id",
+            "label": "微信支付公钥 ID",
+            "type": "text",
+            "help": "形如 PUB_KEY_ID_xxxxxxxx；与回调头 Wechatpay-Serial 一致"
+        },
+        {
+            "key": "wxpay.public_key_pem",
+            "label": "微信支付公钥内容",
+            "type": "textarea",
+            "rows": 4,
+            "help": "商户平台下载的公钥 PEM（含 BEGIN/END PUBLIC KEY 行）"
+        },
+        {
+            "key": "wxpay.notify_host",
+            "label": "回调域名（留空=当前站点域名）",
+            "type": "text",
+            "help": "支付回调 notify_url 主域；多域名部署时填写对外主域名"
+        }
+    ],
+    "frontend_route": true,
+    "signature": "RUmZs2KumW/eK/SaqNDCYI3dEWVfkh6KRIyocxtL0il4mBwO8gULirTrjhXUY4kclZgc/el2c4vhOQo9ADMjAw==",
+    "changelog": "v1.2.0：时段预约(source=slot)支付成功自动确认生效；咨询师到账通知补齐；会员合并为 booking_confirm 单条告知\nv1.1.0：新增咨询单支付（视频咨询预约在线付款，支付成功自动标记预约已付并双向通知）"
+}

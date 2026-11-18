@@ -2,7 +2,7 @@
 <section class="section">
   <div class="container narrow">
     <h1 class="page-title">预约确认</h1>
-    <p class="page-sub">时段已锁定，提交后即时生效（机构确认后正式成立）。信息严格保密。</p>
+    <p class="page-sub">时段已锁定，提交后即时生效（如需线上支付，支付完成即正式成立，无需等待确认）。信息严格保密。</p>
 
     <?php $flashes = app\Core\Session::takeFlashes(); foreach ($flashes as $f): ?>
     <div class="alert alert-<?= e($f['type']) ?>"><?= e($f['msg']) ?></div>

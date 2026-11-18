@@ -92,7 +92,7 @@ class Booking extends Base
         if (class_exists(\plugins\smsnotify\Plugin::class) && (bool)setting('sms.enabled', '0')) {
             $site = (string)setting('site.name', '');
             foreach ($phones as $ph) {
-                $ok = \plugins\smsnotify\Plugin::sendMemberSms($ph, ['site' => str_take($site, 12, ''),
+                $ok = \plugins\smsnotify\Plugin::sendMemberSms($ph, ['store' => str_take($site, 12, ''),
                     'event' => str_take(($b['status'] === 'confirmed' ? '咨询已确认' : '预约提醒'), 20, ''), 'time' => date('m-d H:i')]);
                 if ($ok) $sent++;
             }

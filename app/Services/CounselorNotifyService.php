@@ -96,7 +96,7 @@ class CounselorNotifyService
             if ($tpl === '') return;
             $site = (string)setting('site.name', '');
             $ok = \plugins\smsnotify\Plugin::sendAliyun($phone, json_encode([
-                'site' => str_take($site, 12, ''),
+                'store' => str_take($site, 12, ''),
                 'event' => str_take((self::EVENTS[$event] ?? '通知') . '：' . $title, 20, ''),
                 'time' => date('m-d H:i'),
             ], JSON_UNESCAPED_UNICODE), $tpl) === true;
