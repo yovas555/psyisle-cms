@@ -33,14 +33,16 @@ class Mailer
 
     public static function config(): array
     {
+        // trim+去换行：粘贴污染的授权码（含 \r\n）base64 后会拆断 SMTP 命令行 → 502 Invalid input
+        $clean = fn ($v) => trim(preg_replace('/[\r\n]/', '', (string)$v));
         return [
-            'host' => setting('mail.host'),
+            'host' => $clean(setting('mail.host')),
             'port' => setting('mail.port') ?: 465,
-            'user' => setting('mail.user'),
-            'pass' => setting('mail.pass'),
-            'from' => setting('mail.from') ?: setting('mail.user'),
-            'from_name' => setting('mail.from_name') ?: '一二三CMS',
-            'encryption' => setting('mail.encryption') ?: 'ssl',
+            'user' => $clean(setting('mail.user')),
+            'pass' => $clean(setting('mail.pass')),
+            'from' => $clean(setting('mail.from') ?: setting('mail.user')),
+            'from_name' => $clean(setting('mail.from_name') ?: '一二三CMS'),
+            'encryption' => $clean(setting('mail.encryption') ?: 'ssl'),
         ];
     }
 
@@ -82,6 +84,10 @@ class Mailer
             $this->cmd('EHLO ' . $hostName, [250]);
         }
         if ($this->user !== '') {
+            // v2.19.1：授权码缺失/被清空时快速失败并给出明确指引（空密码 base64 会被服务器 502 拒收）
+            if ($this->pass === '') {
+                throw new \RuntimeException('SMTP 授权码未配置：请在后台 系统设置→邮件 填入邮箱 SMTP 授权码');
+            }
             $this->cmd('AUTH LOGIN', [334]);
             $this->cmd(base64_encode($this->user), [334]);
             $r = $this->cmd(base64_encode($this->pass), [235]);
@@ -115,7 +121,9 @@ class Mailer
 
     private function connect(): void
     {
-        $opts = ['timeout' => 15];
+        // 顶层键只能是协议名（timeout 是 stream_socket_client 参数/流超时，塞进 context 顶层会报
+        // 「Options should have the form ["wrappername"]["optionname"]」并使每次发信失败）
+        $opts = [];
         $target = $this->host . ':' . $this->port;
         if ($this->encryption === 'ssl') {
             $target = 'ssl://' . $target;

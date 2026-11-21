@@ -59,56 +59,19 @@ class Assessment
         }
         $a = Database::fetch('SELECT * FROM assessments WHERE slug=? AND status=1', [$p['slug']]);
         if (!$a) { \app\Controllers\StaticPage::notFound($req, []); return; }
-        $items = json_decode((string)$a['items'], true) ?: [];
-        $scoring = json_decode((string)$a['scoring'], true) ?: [];
 
-        // 计分（未答题按 0 处理）
-        $score = 0;
-        $answered = 0;
-        foreach ($items as $i => $item) {
-            $v = (int)($req->post('q' . $i, 0) ?: 0);
-            if (isset($_POST['q' . $i])) { $answered++; }
-            $score += $v;
-        }
-        if ($answered < count($items)) {
-            \app\Core\Session::flash('error', '还有 ' . (count($items) - $answered) . ' 题未作答，请完成全部题目后提交');
+        // v2.20.0：计分/落库/通知抽至 AssessmentService（WEB 与小程序 BFF 共用）
+        $answers = [];
+        foreach (json_decode((string)$a['items'], true) ?: [] as $i => $item) { $answers[$i] = (int)($req->post('q' . $i, -1) ?: 0); }
+        [$ok, $result, $err] = \app\Services\AssessmentService::submit($a, $answers, \app\Services\MemberService::current()['id'] ?? null, $req->ip());
+        if (!$ok) {
+            \app\Core\Session::flash('error', $err);
             \app\Core\ResponseRedirect('/assessment/' . $a['slug']);
         }
-        $level = '';
-        $advice = '';
-        foreach ($scoring as $band) {
-            if ($score <= (int)$band['max']) {
-                $level = (string)$band['level'];
-                $advice = (string)$band['advice'];
-                break;
-            }
-        }
-        if ($level === '') { $level = '参考结果'; $advice = '建议与专业咨询师聊聊你的情况。'; }
-
-        // v2.4.0：保存答案明细（报告页维度计分）+ 生成脱敏报告短链 token
-        $answers = [];
-        foreach ($items as $i => $item) { $answers[$i] = (int)($req->post('q' . $i, 0) ?: 0); }
-        $reportToken = bin2hex(random_bytes(16));
-        Database::insert('assessment_results', [
-            'assessment_id' => (int)$a['id'],
-            'score' => $score,
-            'level' => mb_substr($level, 0, 29),
-            'ip_hash' => md5($req->ip() . (CONFIG['stats_salt'] ?? 'psyisle-salt')),
-            'member_id' => \app\Services\MemberService::current()['id'] ?? null,
-            'answers' => json_encode($answers, JSON_UNESCAPED_UNICODE),
-            'report_token' => $reportToken,
-            'created_at' => date('Y-m-d H:i:s'),
-        ]);
-        // v2.14.0：会员测评完成 → 站内信/微信通知（含报告链接）
-        $memberNow = \app\Services\MemberService::current();
-        if ($memberNow) {
-            \app\Services\MemberNotifyService::push((int)$memberNow['id'], 'assess_report', [
-                'title' => '测评已完成：' . $a['name'],
-                'body' => '得分 ' . $score . ' · ' . $level,
-                'lines' => ['量表' => $a['name'], '得分' => (string)$score, '分级' => $level],
-                'inapp_url' => '/member/assessments', 'ref_type' => 'assessment', 'ref_id' => (int)$a['id'],
-            ]);
-        }
+        $score = (int)$result['score'];
+        $level = (string)$result['level'];
+        $advice = (string)$result['advice'];
+        $reportToken = (string)$result['report_token'];
         $meta = SeoService::meta($a['name'] . '结果', '', '', url('/assessment/' . $a['slug']));
         View::render('assessment/result', [
             'meta' => $meta,

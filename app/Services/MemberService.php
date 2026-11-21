@@ -209,6 +209,17 @@ class MemberService
         return [true, $email !== '' ? '邮箱已更新，通知将发送至该邮箱' : '邮箱已清除'];
     }
 
+    /** v2.20.0：更新会员资料（姓名/邮箱，小程序与 WEB 共用；手机号为登录标识不开放修改） */
+    public static function updateProfile(array $m, string $name, string $email): array
+    {
+        $name = trim($name);
+        $email = trim($email);
+        if (mb_strlen($name) > 20) return [false, '姓名过长（最多 20 字）'];
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) return [false, '邮箱格式不正确'];
+        Database::run('UPDATE members SET name=NULLIF(?,""), email=NULLIF(?,"") WHERE id=?', [$name, $email, (int)$m['id']]);
+        return [true, '资料已更新'];
+    }
+
     /** 读取通知偏好（缺省：邮件开、微信开；未配置邮箱时邮件实际不发但偏好记录保留） */
     public static function notifyPrefs(int $memberId): array
     {
