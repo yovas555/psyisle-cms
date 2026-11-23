@@ -27,7 +27,7 @@ define('CONFIG_PATH', ROOT . '/config');
 define('STORAGE', ROOT . '/storage');
 define('UPLOAD_PATH', PUBLIC_PATH . '/uploads');
 define('THEME_PATH', APP . '/views/frontend');
-define('CMS_VERSION', '2.21.0');
+define('CMS_VERSION', '2.22.0');
 define('CMS_NAME', '一二三心理咨询网站系统');
 define('CMS_SHORT', '一二三心理');
 define('CMS_VENDOR_URL', 'https://cms.123xl.cn');
@@ -70,6 +70,16 @@ require APP . '/Core/helpers.php';
 // 时区
 $tz = CONFIG['timezone'] ?? 'Asia/Shanghai';
 date_default_timezone_set($tz);
+
+// 数据库迁移（v2.22.0 / D2）：只在有未执行版本时动库；失败仅记日志，不影响站点可用
+// tools/migrate.php 会先定义 SKIP_MIGRATOR，避免「查状态」时被这里抢先执行
+if (!empty(CONFIG['db']['name']) && !defined('SKIP_MIGRATOR')) {
+    try {
+        \app\Services\Migrator::run();
+    } catch (\Throwable $e) {
+        \app\Core\Logger::error('MIGRATOR', 'bootstrap: ' . $e->getMessage());
+    }
+}
 
 // 会话安全基线（GC 生命周期须 ≥ 后台空闲超时，否则 PHP 先行回收 session）
 if (session_status() === PHP_SESSION_NONE) {

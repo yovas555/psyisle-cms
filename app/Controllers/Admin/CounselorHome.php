@@ -23,7 +23,7 @@ class CounselorHome extends Base
     protected string $title = '咨询师工作台';
 
     /** 当前登录账号关联的咨询师行；未关联则提示并跳转 */
-    private function me(): array
+    protected function me(): array
     {
         $u = Session::get('admin_user');
         $row = Database::fetch('SELECT * FROM counselors WHERE user_id=?', [(int)($u['id'] ?? 0)]);
@@ -73,6 +73,8 @@ class CounselorHome extends Base
         $this->view('counselor-home/index', [
             'me' => $me, 'upcoming' => $upcoming, 'today' => $today,
             'pending' => $pending, 'notesCount' => $notes, 'clients' => $clients,
+            'caseStats' => \app\Services\CaseService::stats($cid),
+            'care' => \app\Services\CaseCareService::overview($cid),
         ]);
     }
 
@@ -230,64 +232,12 @@ class CounselorHome extends Base
         $me = $this->me();
         $cid = (int)$me['id'];
         if ($req->isPost()) {
-            Csrf::guard();
-            $act = (string)$req->post('act', '');
-            $nid = (int)$req->post('id', 0);
-            if ($act === 'save') {
-                $mid = (int)$req->post('member_id', 0);
-                $kind = (string)$req->post('kind', 'summary') === 'homework' ? 'homework' : 'summary';
-                $title = str_take(trim((string)$req->post('title', '')), 120, '');
-                $content = Purifier::clean((string)$req->post('content', ''));
-                if ($mid <= 0 || $title === '' || $content === '') {
-                    Session::flash('error', '请选择咨客并填写标题与正文');
-                    \app\Core\ResponseRedirect('/admin/counselor-home/notes');
-                }
-                // P0-G1：写入必须校验归属，不能只判"会员存在"（否则可向任意 member_id 写记录）。
-                // 编辑本人既有记录放行（兼容历史数据）；新建要求该咨客与本咨询师存在预约关系。
-                $noteOwned = $nid > 0 && (bool)Database::fetch(
-                    'SELECT id FROM counselor_notes WHERE id=? AND counselor_id=?',
-                    [$nid, $cid]
-                );
-                if (!$noteOwned) {
-                    if (!(bool)Database::value('SELECT id FROM members WHERE id=?', [$mid])) {
-                        Session::flash('error', '咨客不存在');
-                        \app\Core\ResponseRedirect('/admin/counselor-home/notes');
-                    }
-                    if (!CounselorScope::canAccessMember($cid, $mid)) {
-                        \app\Core\Logger::error('counselor', 'denied note write counselor=' . $cid . ' member=' . $mid);
-                        Session::flash('error', '仅可为与您有过预约的咨客记录');
-                        \app\Core\ResponseRedirect('/admin/counselor-home/notes');
-                    }
-                }
-                if ($nid) {
-                    Database::run('UPDATE counselor_notes SET member_id=?, booking_id=?, kind=?, title=?, content=?, visible=?, updated_at=NOW() WHERE id=? AND counselor_id=?', [
-                        $mid, (int)$req->post('booking_id', 0) ?: null, $kind, $title, $content,
-                        !empty($req->post('visible')) ? 1 : 0, $nid, $cid,
-                    ]);
-                    // P0-G5：咨询记录写入留痕（谁能看、谁改过，监管必问）
-                    $this->audit('note.update', 'counselor_notes', $nid, ['member_id' => $mid, 'kind' => $kind]);
-                    Session::flash('success', '记录已更新');
-                } else {
-                    $newId = Database::insert('counselor_notes', [
-                        'counselor_id' => $cid, 'member_id' => $mid,
-                        'booking_id' => (int)$req->post('booking_id', 0) ?: null,
-                        'kind' => $kind, 'title' => $title, 'content' => $content,
-                        'visible' => !empty($req->post('visible')) ? 1 : 0,
-                        'created_by' => (int)(Session::get('admin_user')['id'] ?? 0),
-                        'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
-                    ]);
-                    $this->audit('note.create', 'counselor_notes', $newId, ['member_id' => $mid, 'kind' => $kind, 'visible' => !empty($req->post('visible'))]);
-                    Session::flash('success', '记录已创建' . (!empty($req->post('visible')) ? '，咨客可在会员中心阅读' : '（暂不可见）'));
-                }
-                \app\Core\ResponseRedirect('/admin/counselor-home/notes');
-            }
-            if ($act === 'toggle') {
-                Database::run('UPDATE counselor_notes SET visible=1-visible, updated_at=NOW() WHERE id=? AND counselor_id=?', [$nid, $cid]);
-                $this->audit('note.visibility', 'counselor_notes', $nid, []);
-                Session::flash('success', '可见性已切换');
-                \app\Core\ResponseRedirect('/admin/counselor-home/notes');
-            }
+            // v2.22.0 / P1-B：历史咨询小结转为只读。新记录一律写进个案（case_records），
+            // 以免出现「同一份内容两套载体、锁定与版本无从谈起」。
+            Session::flash('error', '历史咨询小结已转为只读；新的咨询记录请在「个案管理」中填写（可锁定、可追溯版本）');
+            \app\Core\ResponseRedirect('/admin/counselor-home/notes');
         }
+
         $rows = Database::fetchAll(
             'SELECT n.*, m.phone AS m_phone, m.name AS m_name FROM counselor_notes n
              LEFT JOIN members m ON m.id=n.member_id WHERE n.counselor_id=? ORDER BY n.id DESC LIMIT 60', [$cid]);

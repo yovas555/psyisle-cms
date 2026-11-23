@@ -195,7 +195,12 @@ class Booking extends Base
         echo "\xEF\xBB\xBF"; // BOM 防 Excel 乱码
         foreach ($table as $line) {
             $f = fopen('php://output', 'w');
-            fputcsv($f, array_map(fn($v) => (string)$v, $line));
+            // v2.22.0：单元格可能是数组（如插件附加列），直接 (string) 会刷 Array to string conversion
+            fputcsv($f, array_map(static function ($v) {
+                if (is_array($v)) return json_encode($v, JSON_UNESCAPED_UNICODE);
+                if (is_bool($v)) return $v ? '1' : '0';
+                return (string)$v;
+            }, $line));
             fclose($f);
         }
         exit;

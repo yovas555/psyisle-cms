@@ -67,6 +67,11 @@ class Setting extends Base
             'mail.from' => ['mail_from', 'mail'],
             'mail.from_name' => ['mail_from_name', 'mail'],
             'mail.encryption' => ['mail_encryption', 'mail'],
+            // v2.22.0 / P1-C：咨询记录 AI 草稿（默认关闭，需显式开启）
+            'ai.base_url' => ['ai_base_url', 'ai'],
+            'ai.model' => ['ai_model', 'ai'],
+            'ai.api_key' => ['ai_api_key', 'ai'],
+            'ai.outbound_scope' => ['ai_outbound_scope', 'ai'],
             'notify.admin_email' => ['notify_admin_email', 'notify'],
             'notify.daily_summary' => ['notify_daily_summary', 'notify'],
             'notify.mask_phone' => ['notify_mask_phone', 'notify'],
@@ -101,6 +106,7 @@ class Setting extends Base
             'site.powered_by' => 'general',
             'notify.mask_phone' => 'notify', 'notify.daily_summary' => 'notify', 'notify.login_notice' => 'notify',
             'license.remote_check' => 'general', 'stats.enabled' => 'general',
+            'ai.enabled' => 'ai', 'ai.redact' => 'ai', 'ai.draft_enabled' => 'ai',
         ];
         // 完整表单提交（带 _full_settings 标记）才按「无键=关」处理；
         // 部分提交（脚本/AJAX/插件页）只更新显式提交的开关，避免误清零

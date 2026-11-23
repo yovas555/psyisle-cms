@@ -4,7 +4,7 @@
 
 本仓库发布的是**基础版（个人版）源码**，对应免费 180 天的个人授权，适合个人咨询师 / 小型工作室评估与使用。
 
-- 当前版本：**2.21.0**
+- 当前版本：**2.22.0**
 - 官网 / 授权 / 插件市场：<https://cms.123xl.cn>
 - 安装步骤见 [INSTALL.md](INSTALL.md)，只读接口见 [docs/API.md](docs/API.md)，插件开发见 [docs/PLUGIN-GUIDE.md](docs/PLUGIN-GUIDE.md)
 
@@ -19,7 +19,7 @@
 
 ## 快速开始
 
-1. 下载 [Releases](../../releases) 里的 `psyisle-2.21.0-release.zip`（或 `git clone` 本仓库）。
+1. 下载 [Releases](../../releases) 里的 `psyisle-2.22.0-release.zip`（或 `git clone` 本仓库）。
 2. 解压到站点目录，把 Web 服务器 docroot 指到 `public/`。
 3. 浏览器访问 `http(s)://你的域名/install/`，按向导填数据库与管理员信息。
 4. 安装完成自动落锁，进入 `/admin` 后台。

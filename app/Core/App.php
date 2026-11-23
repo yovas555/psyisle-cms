@@ -182,6 +182,31 @@ class App
         $r->post('/admin/counselor-home/schedule', 'Admin\CounselorHome@schedule');
         $r->get('/admin/counselor-home/notes', 'Admin\CounselorHome@notes');
         $r->post('/admin/counselor-home/notes', 'Admin\CounselorHome@notes');
+        // 个案管理（v2.22.0 / P1-A：个案地基）
+        $r->get('/admin/counselor-home/cases', 'Admin\Casebook@index');
+        $r->post('/admin/counselor-home/cases', 'Admin\Casebook@save');
+        $r->get('/admin/counselor-home/cases/{id:\d+}', 'Admin\Casebook@detail');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/session', 'Admin\Casebook@addSession');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/close', 'Admin\Casebook@close');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/archive', 'Admin\Casebook@archive');
+        // 结构化咨询记录（v2.22.0 / P1-B）
+        $r->get('/admin/counselor-home/cases/{id:\d+}/records', 'Admin\Casebook@records');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/records', 'Admin\Casebook@recordSave');
+        $r->get('/admin/counselor-home/cases/{id:\d+}/records/{rid:\d+}', 'Admin\Casebook@recordView');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/records/{rid:\d+}/lock', 'Admin\Casebook@recordLock');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/records/{rid:\d+}/amend', 'Admin\Casebook@recordAmend');
+        // AI 草稿（v2.22.0 / P1-C：只出草稿，永不自动入档）
+        $r->get('/admin/counselor-home/cases/{id:\d+}/draft', 'Admin\Casebook@draft');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/draft', 'Admin\Casebook@draftRun');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/draft/{tid:\d+}/adopt', 'Admin\Casebook@draftAdopt');
+        // 危机 / 作业 / 随访（v2.22.0 / P1-D：未闭环项常驻工作台）
+        $r->get('/admin/counselor-home/cases/{id:\d+}/care', 'Admin\Casebook@care');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/crisis', 'Admin\Casebook@crisisAdd');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/crisis/{eid:\d+}/close', 'Admin\Casebook@crisisClose');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/homework', 'Admin\Casebook@homeworkAdd');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/homework/{hid:\d+}/done', 'Admin\Casebook@homeworkDone');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/followup', 'Admin\Casebook@followupAdd');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/followup/{fid:\d+}/done', 'Admin\Casebook@followupDone');
         $r->get('/admin/counselor-home/bind-wx', 'Admin\CounselorHome@bindWx');
         $r->get('/admin/cron/plugins', 'Admin\Cron@plugins');
         $r->get('/admin/cron/minute', 'Admin\Cron@minute');

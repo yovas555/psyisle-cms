@@ -166,10 +166,11 @@ if ($isCounselorWs):
 <header class="mainnav">
   <a class="mainnav-brand" href="/admin/counselor-home"><span class="brand-mark">123</span><span class="txt">咨询师工作台</span></a>
   <nav class="mainnav-tabs">
-    <a class="mainnav-tab<?= strpos($seg, 'counselor-home') !== false && strpos($seg, 'profile') === false && strpos($seg, 'bookings') === false && strpos($seg, 'schedule') === false && strpos($seg, 'notes') === false ? ' active' : '' ?>" href="/admin/counselor-home">总览</a>
+    <a class="mainnav-tab<?= strpos($seg, 'counselor-home') !== false && strpos($seg, 'profile') === false && strpos($seg, 'bookings') === false && strpos($seg, 'schedule') === false && strpos($seg, 'notes') === false && strpos($seg, 'cases') === false ? ' active' : '' ?>" href="/admin/counselor-home">总览</a>
     <a class="mainnav-tab<?= strpos($seg, '/profile') !== false ? ' active' : '' ?>" href="/admin/counselor-home/profile">我的资料</a>
     <a class="mainnav-tab<?= strpos($seg, '/bookings') !== false ? ' active' : '' ?>" href="/admin/counselor-home/bookings">我的预约</a>
     <a class="mainnav-tab<?= strpos($seg, '/schedule') !== false ? ' active' : '' ?>" href="/admin/counselor-home/schedule">我的排班</a>
+    <a class="mainnav-tab<?= strpos($seg, '/cases') !== false ? ' active' : '' ?>" href="/admin/counselor-home/cases">个案管理</a>
     <a class="mainnav-tab<?= strpos($seg, '/notes') !== false ? ' active' : '' ?>" href="/admin/counselor-home/notes">咨询小结与作业</a>
   </nav>
   <div class="mainnav-right">
@@ -186,6 +187,7 @@ if ($isCounselorWs):
     <a href="/admin/counselor-home/profile"<?= $cwActive('/admin/counselor-home/profile') ?>>我的资料与价格</a>
     <a href="/admin/counselor-home/bookings"<?= $cwActive('/admin/counselor-home/bookings') ?>>我的预约</a>
     <a href="/admin/counselor-home/schedule"<?= $cwActive('/admin/counselor-home/schedule') ?>>我的排班</a>
+    <a href="/admin/counselor-home/cases"<?= $cwActive('/admin/counselor-home/cases') ?>>个案管理</a>
     <a href="/admin/counselor-home/notes"<?= $cwActive('/admin/counselor-home/notes') ?>>咨询小结与作业</a>
     <p class="side-group">帮助</p>
     <a href="/" target="_blank">查看前台 ↗</a>

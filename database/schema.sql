@@ -3,7 +3,6 @@
 -- =============================================================
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
-
 -- 站点设置（key-value）
 CREATE TABLE `settings` (
   `skey` varchar(80) NOT NULL,
@@ -12,7 +11,6 @@ CREATE TABLE `settings` (
   `updated_at` datetime NULL,
   PRIMARY KEY (`skey`), KEY `idx_group` (`sgroup`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 后台角色
 CREATE TABLE `roles` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -23,7 +21,6 @@ CREATE TABLE `roles` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_code` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 后台用户
 CREATE TABLE `users` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -43,7 +40,6 @@ CREATE TABLE `users` (
   `updated_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_username` (`username`), KEY `idx_role` (`role_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 操作审计
 CREATE TABLE `audit_logs` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -59,7 +55,6 @@ CREATE TABLE `audit_logs` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_user` (`user_id`,`created_at`), KEY `idx_action` (`action`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 栏目/分类（树形，type 区分用途）
 CREATE TABLE `categories` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -76,7 +71,6 @@ CREATE TABLE `categories` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_slug` (`slug`), KEY `idx_type_pid` (`type`,`pid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 文章（新闻动态/科普/案例共用）
 CREATE TABLE `articles` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -102,7 +96,6 @@ CREATE TABLE `articles` (
   PRIMARY KEY (`id`), UNIQUE KEY `uk_slug` (`slug`),
   KEY `idx_pub` (`status`,`published_at`), KEY `idx_cat` (`category_id`), FULLTEXT KEY `ft_title` (`title`,`summary`) WITH PARSER ngram
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 单页
 CREATE TABLE `pages` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -118,7 +111,6 @@ CREATE TABLE `pages` (
   `updated_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_slug` (`slug`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 咨询师
 CREATE TABLE `counselors` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -153,7 +145,6 @@ CREATE TABLE `counselors` (
   `updated_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_slug` (`slug`), KEY `idx_status` (`status`,`sort`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 咨询师可约时段模板
 CREATE TABLE `counselor_slots` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -165,7 +156,6 @@ CREATE TABLE `counselor_slots` (
   `status` tinyint(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`), KEY `idx_counselor` (`counselor_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 服务项目
 CREATE TABLE `services` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -189,7 +179,6 @@ CREATE TABLE `services` (
   `updated_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_slug` (`slug`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 预约
 CREATE TABLE `bookings` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -221,7 +210,6 @@ CREATE TABLE `bookings` (
   PRIMARY KEY (`id`), UNIQUE KEY `uk_code` (`code`),
   KEY `idx_status` (`status`), KEY `idx_phone` (`phone`), KEY `idx_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 咨询留言
 CREATE TABLE `messages` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -237,7 +225,6 @@ CREATE TABLE `messages` (
   `updated_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_code` (`code`), KEY `idx_status` (`status`), KEY `idx_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 留言回复
 CREATE TABLE `message_replies` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -248,7 +235,6 @@ CREATE TABLE `message_replies` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_msg` (`message_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- AI 客服会话
 CREATE TABLE `chat_sessions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -263,7 +249,6 @@ CREATE TABLE `chat_sessions` (
   `last_active_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_token` (`token`), KEY `idx_status` (`status`,`last_active_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- AI 对话消息
 CREATE TABLE `chat_messages` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -275,7 +260,6 @@ CREATE TABLE `chat_messages` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_session` (`session_id`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- AI 知识库词条
 CREATE TABLE `ai_kb` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -288,7 +272,6 @@ CREATE TABLE `ai_kb` (
   `updated_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_enabled` (`enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- FAQ
 CREATE TABLE `faqs` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -301,7 +284,6 @@ CREATE TABLE `faqs` (
   `updated_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_cat` (`category_id`,`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 轮播图
 CREATE TABLE `banners` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -314,7 +296,6 @@ CREATE TABLE `banners` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_pos` (`position`,`status`,`sort`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 导航菜单
 CREATE TABLE `navigations` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -325,7 +306,6 @@ CREATE TABLE `navigations` (
   `status` tinyint(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`), KEY `idx_loc` (`location`,`status`,`sort`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 友情链接
 CREATE TABLE `links` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -336,7 +316,6 @@ CREATE TABLE `links` (
   `status` tinyint(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 附件媒体库
 CREATE TABLE `attachments` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -350,7 +329,6 @@ CREATE TABLE `attachments` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_hash` (`hash`), KEY `idx_module` (`module`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 邮件队列
 CREATE TABLE `email_queue` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -366,7 +344,6 @@ CREATE TABLE `email_queue` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_status` (`status`,`scheduled_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 站内通知
 CREATE TABLE `notifications` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -379,7 +356,6 @@ CREATE TABLE `notifications` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_read` (`is_read`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 访问日志（隐私：IP 哈希）
 CREATE TABLE `visit_logs` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -390,7 +366,6 @@ CREATE TABLE `visit_logs` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 访问统计日聚合
 CREATE TABLE `visit_stats` (
   `date` date NOT NULL,
@@ -400,7 +375,6 @@ CREATE TABLE `visit_stats` (
   `top_sources` text NULL COMMENT 'JSON',
   PRIMARY KEY (`date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 排班例外日期（schedule-pro：临时开诊/停诊覆盖周模板）
 CREATE TABLE `schedule_overrides` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -413,7 +387,6 @@ CREATE TABLE `schedule_overrides` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_cd` (`counselor_id`,`date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 考勤（schedule-pro：预约完成后标记）
 CREATE TABLE `attendance` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -425,7 +398,6 @@ CREATE TABLE `attendance` (
   `marked_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_booking` (`booking_id`), KEY `k_counselor` (`counselor_id`,`mark`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 课时包（packages-pro）
 CREATE TABLE `packages` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -438,7 +410,6 @@ CREATE TABLE `packages` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 会员课时包订单（余额与有效期）
 CREATE TABLE `package_orders` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -453,7 +424,6 @@ CREATE TABLE `package_orders` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `k_member` (`member_id`,`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 优惠券/邀请码（packages-pro）
 CREATE TABLE `coupons` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -471,7 +441,6 @@ CREATE TABLE `coupons` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_code` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 券使用记录
 CREATE TABLE `coupon_usages` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -481,7 +450,6 @@ CREATE TABLE `coupon_usages` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `k_coupon` (`coupon_id`), KEY `k_member` (`member_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 对账流水（packages-pro：所有课包变动一笔一账）
 CREATE TABLE `package_ledger` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -495,7 +463,6 @@ CREATE TABLE `package_ledger` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `k_member` (`member_id`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 会员（自助中心；phone 唯一，数据仅本人可见）
 CREATE TABLE `members` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -515,7 +482,6 @@ CREATE TABLE `members` (
   PRIMARY KEY (`id`), UNIQUE KEY `uk_phone` (`phone`), KEY `k_status` (`status`),
   UNIQUE KEY `uk_openid` (`openid`), KEY `k_unionid` (`unionid`), KEY `k_wx_openid` (`wx_openid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 会员通知台账（v2.9.0：邮件/微信/中台 全通道投递记录，排查触达问题）
 -- 会员站内信（v2.14.0：预约/支付/套餐/系统等会员侧通知）
 CREATE TABLE `member_notifications` (
@@ -531,7 +497,6 @@ CREATE TABLE `member_notifications` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `k_member` (`member_id`,`is_read`), KEY `k_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 咨询师站内信（工作台消息：预约变动/小结提醒/系统）
 CREATE TABLE `counselor_notifications` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -545,7 +510,6 @@ CREATE TABLE `counselor_notifications` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `k_csl` (`counselor_id`,`is_read`), KEY `k_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 咨询师微信绑定（服务号 OpenID；wxhub-client/wxlogin 咨询师侧绑定写入）
 CREATE TABLE `counselor_notify_log` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -556,7 +520,6 @@ CREATE TABLE `counselor_notify_log` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `k_csl` (`counselor_id`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE `counselor_wx` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `counselor_id` int unsigned NOT NULL,
@@ -566,7 +529,6 @@ CREATE TABLE `counselor_wx` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_openid` (`openid`), KEY `k_counselor` (`counselor_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE `member_notify_log` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `member_id` int unsigned NOT NULL,
@@ -578,7 +540,6 @@ CREATE TABLE `member_notify_log` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `k_member` (`member_id`,`event`), KEY `k_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 通知兜底台账（v2.17.0：短信兜底制——微信/邮件推送 30 分钟无查阅回执 → Cron sweep 补发短信）
 CREATE TABLE `notify_escalations` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -595,7 +556,6 @@ CREATE TABLE `notify_escalations` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_token` (`click_token`), KEY `k_member` (`member_id`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 咨询套餐购买申请（v2.9.0：会员自助下单，线下收款模式；机构确认收款后入账）
 CREATE TABLE `package_requests` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -614,7 +574,6 @@ CREATE TABLE `package_requests` (
   PRIMARY KEY (`id`), UNIQUE KEY `uk_request_no` (`request_no`),
   KEY `k_member` (`member_id`), KEY `k_status` (`status`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 授权
 CREATE TABLE `licenses` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -633,7 +592,6 @@ CREATE TABLE `licenses` (
   `update_enabled` tinyint NOT NULL DEFAULT 1 COMMENT '是否允许远程升级分发',
   PRIMARY KEY (`id`), UNIQUE KEY `uk_key` (`license_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 升级历史
 CREATE TABLE `upgrade_history` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -646,7 +604,6 @@ CREATE TABLE `upgrade_history` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 升级分发主站：发行包登记（仅主站使用）
 CREATE TABLE `upgrade_packages` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -664,7 +621,6 @@ CREATE TABLE `upgrade_packages` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `k_kind` (`kind`,`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 升级分发 API 审计（仅主站使用）
 CREATE TABLE `upgrade_api_logs` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -677,7 +633,6 @@ CREATE TABLE `upgrade_api_logs` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `k_created` (`created_at`), KEY `k_license` (`license`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 SET FOREIGN_KEY_CHECKS = 1;\n
 -- 心理自评量表（内置 PHQ-9/GAD-7，仅筛查提示不构成诊断）
 CREATE TABLE `assessments` (
@@ -693,7 +648,6 @@ CREATE TABLE `assessments` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_slug` (`slug`), KEY `idx_status` (`status`,`sort`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 量表提交记录（隐私：不存答案明细，只存分数/分级/IP哈希）
 CREATE TABLE `assessment_results` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -707,7 +661,6 @@ CREATE TABLE `assessment_results` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_a` (`assessment_id`,`created_at`), KEY `idx_member` (`member_id`,`created_at`), KEY `idx_token` (`report_token`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 会员心声（授权+匿名化的展示评价）
 CREATE TABLE `testimonials` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -719,7 +672,6 @@ CREATE TABLE `testimonials` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_status` (`status`,`sort`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 活动/工作坊/讲座（机构获客利器）
 CREATE TABLE `events` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -741,7 +693,6 @@ CREATE TABLE `events` (
   `updated_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_slug` (`slug`), KEY `idx_status_date` (`status`,`event_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 活动报名名单
 CREATE TABLE `event_registrations` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -755,10 +706,8 @@ CREATE TABLE `event_registrations` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_event` (`event_id`,`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 ALTER TABLE `messages` ADD COLUMN `is_featured` tinyint(1) NOT NULL DEFAULT 0 COMMENT '精选公开问答' AFTER `status`;
 ALTER TABLE `counselors` ADD COLUMN `video_url` varchar(255) NULL COMMENT '视频介绍（B站/腾讯视频）' AFTER `avatar`;
-
 -- 内容修订版本（文章/单页快照，保留最近 10 版）
 CREATE TABLE `revisions` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -769,10 +718,8 @@ CREATE TABLE `revisions` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `idx_target` (`target_type`,`target_id`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 ALTER TABLE `articles` ADD COLUMN `deleted_at` datetime NULL COMMENT '回收站' AFTER `is_top`;
 ALTER TABLE `pages` ADD COLUMN `deleted_at` datetime NULL AFTER `show_in_nav`;
-
 -- ============ v2.8.0：多门店 / 企业 EAP / 知情同意电子签署 ============
 
 -- 门店（多门店授权 licenses.features.multisite 开启后可见）
@@ -791,7 +738,6 @@ CREATE TABLE `stores` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `k_status` (`status`,`sort`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 企业（EAP 客户；企业码供员工进入预约）
 CREATE TABLE `enterprises` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -805,7 +751,6 @@ CREATE TABLE `enterprises` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_code` (`code`), KEY `k_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 知情同意书模板（签署时全文快照进签署记录，模板后续修改不影响已签记录）
 CREATE TABLE `consent_templates` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -817,7 +762,6 @@ CREATE TABLE `consent_templates` (
   `updated_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `k_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 签署记录（存证：全文快照 + 哈希链 + 时间戳；evidence_hash 逐条链接，篡改/删除断链可检测）
 CREATE TABLE `consent_signatures` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -847,23 +791,19 @@ CREATE TABLE `consent_signatures` (
   PRIMARY KEY (`id`), UNIQUE KEY `uk_evidence_no` (`evidence_no`), UNIQUE KEY `uk_token` (`token`),
   KEY `k_status` (`status`,`created_at`), KEY `k_member` (`member_id`), KEY `k_booking` (`booking_id`), KEY `k_phone` (`signer_phone`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- 业务表门店/企业归属（store_id 0=未指定/总店）
 ALTER TABLE `bookings` ADD COLUMN `store_id` int NOT NULL DEFAULT 0 COMMENT '门店' AFTER `counselor_id`;
 ALTER TABLE `bookings` ADD COLUMN `enterprise_id` int unsigned NULL COMMENT '企业 EAP 来源' AFTER `store_id`;
 ALTER TABLE `counselors` ADD COLUMN `store_id` int NOT NULL DEFAULT 0 COMMENT '归属门店' AFTER `video_url`;
-
 -- ============ v2.10.0：咨询师工作台 ============
 
 -- 咨询师 ↔ 后台账号关联（咨询师登录后台工作台）
 ALTER TABLE `counselors` ADD COLUMN `user_id` int unsigned NULL COMMENT '关联后台账号（咨询师工作台）' AFTER `store_id`;
-
 -- 后台账号微信绑定（咨询师微信快捷登录）
 ALTER TABLE `users` ADD COLUMN `openid` varchar(64) NULL COMMENT '微信 OpenID（快捷登录）',
   ADD COLUMN `unionid` varchar(64) NULL COMMENT '微信 UnionID',
   ADD COLUMN `avatar` varchar(255) NULL COMMENT '微信头像';
 ALTER TABLE `users` ADD UNIQUE KEY `uk_openid` (`openid`);
-
 -- 咨询小结与作业训练（咨询师发给指定咨客阅读）
 CREATE TABLE `counselor_notes` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -880,3 +820,179 @@ CREATE TABLE `counselor_notes` (
   PRIMARY KEY (`id`),
   KEY `k_counselor` (`counselor_id`,`created_at`), KEY `k_member` (`member_id`,`visible`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================
+-- v2.22.0 · 个案主线（P1-A/B/C/D）：以下 DDL 与 database/migrations/*.sql 逐字一致
+-- 全新安装直接建表；已装站点由 Migrator 按迁移文件增量执行，两条路径结果相同。
+-- =============================================================
+
+-- 个案主档与会次（P1-A）
+CREATE TABLE IF NOT EXISTS `cases` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `case_no` varchar(24) NOT NULL COMMENT '个案编号（C+日期-序号，对人可读）',
+  `member_id` int unsigned NOT NULL COMMENT '来访者（会员）',
+  `counselor_id` int unsigned NOT NULL COMMENT '主责咨询师',
+  `booking_id` int unsigned NULL COMMENT '开案关联预约（选填）',
+  `title` varchar(120) NOT NULL DEFAULT '' COMMENT '个案名（去标识，如「大一适应-初诊」）',
+  `presenting` varchar(500) NULL COMMENT '主诉概述（勿写可识别人信息）',
+  `goals` varchar(1000) NULL COMMENT '咨询目标与计划',
+  `risk_level` varchar(10) NOT NULL DEFAULT 'low' COMMENT 'low/medium/high 危机风险分级',
+  `status` varchar(12) NOT NULL DEFAULT 'active' COMMENT 'active 进行中 / closed 已结案 / archived 已归档',
+  `opened_at` date NULL COMMENT '开案日期',
+  `closed_at` datetime NULL,
+  `close_reason` varchar(200) NULL,
+  `session_count` int unsigned NOT NULL DEFAULT 0 COMMENT '会次计数（case_sessions 汇总，冗余加速列表）',
+  `last_session_at` date NULL,
+  `created_by` int unsigned NULL,
+  `created_at` datetime NULL,
+  `updated_at` datetime NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_case_no` (`case_no`),
+  KEY `k_member` (`member_id`,`status`),
+  KEY `k_counselor` (`counselor_id`,`status`,`last_session_at`),
+  KEY `k_status_opened` (`status`,`opened_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='个案主档（P1-A）';
+
+CREATE TABLE IF NOT EXISTS `case_sessions` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `case_id` int unsigned NOT NULL,
+  `seq` int unsigned NOT NULL COMMENT '个案内第几次（1 起递增）',
+  `counselor_id` int unsigned NOT NULL COMMENT '冗余，便于鉴权与按咨询师统计',
+  `booking_id` int unsigned NULL COMMENT '对应预约（选填，便于对账）',
+  `held_at` date NULL COMMENT '咨询日期',
+  `duration_min` smallint unsigned NULL COMMENT '时长（分钟）',
+  `method` varchar(20) NULL COMMENT '面对面/视频/电话',
+  `attendance` varchar(12) NOT NULL DEFAULT 'held' COMMENT 'held 已进行 / no_show 未到 / cancelled 已取消',
+  `topic` varchar(200) NULL COMMENT '本次主题（去标识）',
+  `created_at` datetime NULL,
+  `updated_at` datetime NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_case_seq` (`case_id`,`seq`),
+  KEY `k_counselor_date` (`counselor_id`,`held_at`),
+  KEY `k_booking` (`booking_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='个案会次（P1-A）';
+
+-- 结构化咨询记录与版本快照（P1-B）
+CREATE TABLE IF NOT EXISTS `case_records` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `case_id` int unsigned NOT NULL,
+  `session_id` int unsigned NULL COMMENT '关联会次（选填）',
+  `counselor_id` int unsigned NOT NULL,
+  `member_id` int unsigned NOT NULL,
+  `record_type` varchar(12) NOT NULL DEFAULT 'summary' COMMENT 'summary 小结 / soap 结构化 / assessment 评估 / plan 计划',
+  `title` varchar(120) NOT NULL,
+  `content` mediumtext NOT NULL COMMENT '富文本正文（已净化）',
+  `version` int unsigned NOT NULL DEFAULT 1 COMMENT '当前版本号（每次保存 +1）',
+  `status` varchar(12) NOT NULL DEFAULT 'draft' COMMENT 'draft 草稿可改 / locked 已锁定不可改',
+  `visible` tinyint NOT NULL DEFAULT 0 COMMENT '对咨客可见（默认不可见，需显式勾选）',
+  `locked_at` datetime NULL,
+  `locked_by` int unsigned NULL,
+  `amends_id` int unsigned NULL COMMENT '修订自哪条已锁定记录',
+  `legacy_note_id` int unsigned NULL COMMENT '由 counselor_notes 迁移而来（幂等键）',
+  `created_by` int unsigned NULL,
+  `created_at` datetime NULL,
+  `updated_at` datetime NULL,
+  `ai_task_id` int unsigned NULL COMMENT 'AI 任务来源（AI 只是草稿，人工确认后才有此值）',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_legacy` (`legacy_note_id`),
+  KEY `k_case` (`case_id`,`created_at`),
+  KEY `k_session` (`session_id`),
+  KEY `k_counselor` (`counselor_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='结构化咨询记录（P1-B）';
+
+CREATE TABLE IF NOT EXISTS `case_record_versions` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `record_id` int unsigned NOT NULL,
+  `version` int unsigned NOT NULL,
+  `title` varchar(120) NOT NULL,
+  `content` mediumtext NOT NULL,
+  `status` varchar(12) NOT NULL DEFAULT 'draft',
+  `editor_id` int unsigned NULL,
+  `created_at` datetime NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_record_version` (`record_id`,`version`),
+  KEY `k_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='咨询记录版本快照（只增不改）';
+
+-- AI 草稿任务（P1-C）
+CREATE TABLE IF NOT EXISTS `ai_tasks` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `case_id` int unsigned NOT NULL,
+  `session_id` int unsigned NULL,
+  `counselor_id` int unsigned NOT NULL,
+  `kind` varchar(16) NOT NULL DEFAULT 'draft' COMMENT 'draft 记录草稿 / summary 阶段小结',
+  `input_chars` int unsigned NOT NULL DEFAULT 0,
+  `redacted_count` smallint unsigned NOT NULL DEFAULT 0 COMMENT '出站前脱敏命中数',
+  `outbound` tinyint NOT NULL DEFAULT 0 COMMENT '1=确实发生了外发',
+  `input_text` mediumtext NULL COMMENT '已脱敏的输入（不外发原文）',
+  `output_text` mediumtext NULL COMMENT '模型返回的草稿',
+  `model` varchar(80) NULL,
+  `status` varchar(12) NOT NULL DEFAULT 'pending' COMMENT 'pending/done/failed/adopted',
+  `error` varchar(500) NULL,
+  `adopted_record_id` int unsigned NULL COMMENT '采用后生成的咨询记录',
+  `created_by` int unsigned NULL,
+  `created_at` datetime NULL,
+  `updated_at` datetime NULL,
+  PRIMARY KEY (`id`),
+  KEY `k_case` (`case_id`,`created_at`),
+  KEY `k_counselor` (`counselor_id`,`status`),
+  KEY `k_adopted` (`adopted_record_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI 草稿任务（P1-C）';
+
+-- 危机 / 作业 / 随访（P1-D）
+CREATE TABLE IF NOT EXISTS `crisis_events` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `case_id` int unsigned NOT NULL,
+  `counselor_id` int unsigned NOT NULL,
+  `member_id` int unsigned NOT NULL,
+  `level` varchar(12) NOT NULL DEFAULT 'medium' COMMENT 'low/medium/high/urgent',
+  `occurred_at` datetime NULL COMMENT '发现时间',
+  `summary` varchar(500) NOT NULL COMMENT '事件与表现（去标识）',
+  `action_taken` varchar(1000) NULL COMMENT '已采取的处置（告知监护人/转介/热线/紧急联系人等）',
+  `status` varchar(10) NOT NULL DEFAULT 'open' COMMENT 'open 未闭环 / closed 已闭环',
+  `closed_at` datetime NULL,
+  `closed_by` int unsigned NULL,
+  `closure_note` varchar(500) NULL COMMENT '闭环结论（必填才能关闭）',
+  `created_by` int unsigned NULL,
+  `created_at` datetime NULL,
+  `updated_at` datetime NULL,
+  PRIMARY KEY (`id`),
+  KEY `k_case` (`case_id`,`status`),
+  KEY `k_counselor` (`counselor_id`,`status`,`occurred_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='危机事件（P1-D）';
+
+CREATE TABLE IF NOT EXISTS `case_homeworks` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `case_id` int unsigned NOT NULL,
+  `session_id` int unsigned NULL,
+  `counselor_id` int unsigned NOT NULL,
+  `title` varchar(120) NOT NULL,
+  `content` varchar(1000) NULL COMMENT '练习说明',
+  `assigned_at` date NULL,
+  `due_at` date NULL,
+  `status` varchar(12) NOT NULL DEFAULT 'assigned' COMMENT 'assigned/done/cancelled',
+  `completed_at` datetime NULL,
+  `feedback` varchar(500) NULL COMMENT '完成情况与反馈',
+  `created_at` datetime NULL,
+  `updated_at` datetime NULL,
+  PRIMARY KEY (`id`),
+  KEY `k_case` (`case_id`,`status`),
+  KEY `k_counselor` (`counselor_id`,`status`,`due_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='个案作业（P1-D）';
+
+CREATE TABLE IF NOT EXISTS `case_followups` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `case_id` int unsigned NOT NULL,
+  `counselor_id` int unsigned NOT NULL,
+  `due_at` date NOT NULL COMMENT '计划联系日期',
+  `channel` varchar(12) NOT NULL DEFAULT 'phone' COMMENT 'phone/wechat/sms/visit',
+  `purpose` varchar(200) NULL COMMENT '随访目的（如：结案后 2 周回访）',
+  `status` varchar(10) NOT NULL DEFAULT 'pending' COMMENT 'pending/done/skipped',
+  `done_at` datetime NULL,
+  `result` varchar(500) NULL COMMENT '随访结果',
+  `created_at` datetime NULL,
+  `updated_at` datetime NULL,
+  PRIMARY KEY (`id`),
+  KEY `k_case` (`case_id`,`status`),
+  KEY `k_counselor_due` (`counselor_id`,`status`,`due_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='个案随访计划（P1-D）';

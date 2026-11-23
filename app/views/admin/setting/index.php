@@ -156,6 +156,31 @@
         <label class="field"><span class="label">SMTP 密码 / 授权码</span><input type="password" name="mail.pass" value="" placeholder="<?= setting('mail.pass') !== null && setting('mail.pass', '') !== '' ? '••••••••（已保存，留空不修改）' : '邮箱需开启 SMTP 并使用授权码' ?>" autocomplete="new-password"></label>
         <label class="field"><span class="label">发件人名称</span><input type="text" name="mail.from_name" value="<?= $v('mail.from_name', '一二三CMS') ?>"></label>
       </div>
+      <h2>咨询记录 AI 草稿</h2>
+      <div class="form-grid">
+        <label class="field switch-field"><span class="label">启用 AI 草稿</span>
+          <label class="switch"><input type="checkbox" name="ai.draft_enabled" value="1" <?= setting('ai.draft_enabled', '0') === '1' ? 'checked' : '' ?>><i></i></label>
+          <span class="hint">关闭时咨询师看不到生成入口；AI 只产出草稿，永不自动写入咨询记录</span>
+        </label>
+        <label class="field switch-field"><span class="label">启用 AI 能力总开关</span>
+          <label class="switch"><input type="checkbox" name="ai.enabled" value="1" <?= setting('ai.enabled') ? 'checked' : '' ?>><i></i></label>
+          <span class="hint">AI 客服与 AI 草稿共用此开关</span>
+        </label>
+        <label class="field"><span class="label">接口地址（OpenAI 兼容）</span><input type="text" name="ai.base_url" value="<?= $v('ai.base_url', 'https://api.deepseek.com') ?>" placeholder="https://api.deepseek.com"></label>
+        <label class="field"><span class="label">模型名</span><input type="text" name="ai.model" value="<?= $v('ai.model') ?>" placeholder="deepseek-chat"></label>
+        <label class="field"><span class="label">API Key</span><input type="password" name="ai.api_key" value="" placeholder="<?= setting('ai.api_key', '') !== '' ? '••••••••（已保存，留空不修改）' : 'sk-...' ?>" autocomplete="new-password"></label>
+        <label class="field"><span class="label">外发策略</span>
+          <select name="ai.outbound_scope">
+            <option value="chat" <?= setting('ai.outbound_scope', 'chat') === 'chat' ? 'selected' : '' ?>>仅对话（脱敏后允许外发）</option>
+            <option value="none" <?= setting('ai.outbound_scope', 'chat') === 'none' ? 'selected' : '' ?>>零外发（只用本地知识库）</option>
+          </select>
+          <span class="hint">选「零外发」后，AI 客服与 AI 草稿都不会把内容发到外部接口</span>
+        </label>
+        <label class="field switch-field"><span class="label">外发前脱敏</span>
+          <label class="switch"><input type="checkbox" name="ai.redact" value="1" <?= setting('ai.redact', '1') === '1' ? 'checked' : '' ?>><i></i></label>
+          <span class="hint">手机号 / 身份证 / 邮箱 / 卡号替换为占位符</span>
+        </label>
+      </div>
       <h2>通知推送</h2>
       <div class="form-grid">
         <label class="field field-full"><span class="label">接收邮箱（支持多个值班邮箱，用 ; 分隔）</span><input type="text" name="notify.admin_email" value="<?= $v('notify.admin_email') ?>" placeholder="admin@example.com;duty@example.com（分号分隔，逐一发送）"></label>
