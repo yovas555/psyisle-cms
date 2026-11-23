@@ -11,7 +11,7 @@
   <tr>
     <td><?= (int)$r['id'] ?></td>
     <td><?= e($r['title']) ?></td>
-    <td class="muted"><?= e($cats[$r['category_id']] ?? ($r['slug'] ?? '')) ?></td>
+    <td class="muted"><?= e($cats[(int)($r['category_id'] ?? 0)] ?? ($r['slug'] ?? '')) ?></td>
     <td class="muted"><?= e($r['deleted_at']) ?></td>
     <td class="ops">
       <form method="post" action="/admin/<?= e($type ?? 'articles') ?>/restore/<?= (int)$r['id'] ?>" style="display:inline"><?= csrf_field() ?>

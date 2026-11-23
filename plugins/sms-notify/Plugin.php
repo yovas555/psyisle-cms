@@ -244,6 +244,15 @@ final class Plugin implements NotifyChannel
 
     private static function ensureTable(): void
     {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        // v1.1.6 并发保护：cron 与前台可能同时触发 DDL，串行化以免 "Duplicate column"
+        $fp = @fopen(sys_get_temp_dir() . '/psyisle_sms_notify.lock', 'c');
+        if ($fp) {
+            @flock($fp, LOCK_EX);
+        }
         try {
             Database::run("CREATE TABLE IF NOT EXISTS `sms_notify_log` (
                 `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -261,8 +270,17 @@ final class Plugin implements NotifyChannel
             // v1.1.5 幂等迁移：存量表补 content 列
             $has = (int)Database::value("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='sms_notify_log' AND COLUMN_NAME='content'");
             if (!$has) Database::run("ALTER TABLE sms_notify_log ADD COLUMN `content` varchar(160) NULL AFTER `err`");
+            $done = true;
         } catch (\Throwable $t) {
-            Logger::error('sms-notify', 'ensureTable: ' . $t->getMessage());
+            $m = $t->getMessage();
+            if (stripos($m, 'Duplicate column') === false) {
+                Logger::error('sms-notify', 'ensureTable: ' . $m);
+            }
+        } finally {
+            if ($fp) {
+                @flock($fp, LOCK_UN);
+                @fclose($fp);
+            }
         }
     }
 

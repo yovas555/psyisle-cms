@@ -1,7 +1,7 @@
 {
     "slug": "sms-notify",
     "name": "短信通知（阿里云）",
-    "version": "1.1.5",
+    "version": "1.1.6",
     "author": "PsyIsle Official",
     "description": "关键事件通过阿里云短信推送到机构管理员/值班手机：危机预警即时送达（不受免打扰限制）、AI 转人工即时提醒；其余事件默认关闭可按需开启。v1.1.0 新增会员登录验证码短信通道。按条计量、发送日志、到达率统计。",
     "min_cms_version": "2.16.0",
@@ -105,6 +105,6 @@
             "default": "1"
         }
     ],
-    "signature": "RDOTS7Xsu69Jt7Jq9lrSiDb6wQGKS73xQX0DztGQxFhZxCcEYLd+/orR0Opb5WbVF9Koq4II90NjEdCBWkbxAA==",
-    "changelog": "v1.1.5（补充）：sendMemberSms 支持查阅短链参数（$url，sms.template_url_enabled 开关控制——新模板含 ${url} 变量过审后开启，短信携带 /n/{token} 查阅链接点击即回执）；设置页新增模板链接开关项\nv1.1.5 短信降噪三修复：①渠道白名单 fail-closed——TYPE_SWITCHES 未列出的后台通知类（upgrade/system/member/order 等）不再发短信（曾致升级提醒每日短信+静默积压 08:00 轰炸 9 条），此类走站内信+邮件；②队列节流——静默时段结束的积压每分钟最多放 10 条；③sms_notify_log 加 content 列（幂等迁移）记录发送内容摘要，杜绝「查不到发了什么」\nv1.1.4：短信模板变量名适配阿里云规范（禁用 site → 改用 store；配套通用通知模板 SMS_512638908）\nv1.1.3：补齐 1.1.2 发行包缺失的会员通用短信 sendMemberSms；min_cms 提升至 2.16.0\nv1.1.2：新增会员通用短信 sendMemberSms（通用通知模板，与告警共用阿里云账号；v2.16.0 会员通知体系）\nv1.1.1：后台导航分组（v2.8.1 导航重组）\nv1.1.0：新增会员登录验证码通道（sms.code_template_code + sms.code_enabled），与告警共用阿里云账号"
+    "signature": "2A2N0UL/SavUqAiQn8eUMqEtHkxNaW6ZMOCBIxsuph+KtKoqWQJTvtKVkEBVCLdBJqFp/NLvETfz9vvaGeVfDQ==",
+    "changelog": "v1.1.6 并发建表加固：ensureTable 加进程内一次性标记 + flock 锁，并发请求下 Duplicate column 静默，消除重复 DDL 与日志噪声\nv1.1.5（补充）：sendMemberSms 支持查阅短链参数（$url，sms.template_url_enabled 开关控制——新模板含 ${url} 变量过审后开启，短信携带 /n/{token} 查阅链接点击即回执）；设置页新增模板链接开关项\nv1.1.5 短信降噪三修复：①渠道白名单 fail-closed——TYPE_SWITCHES 未列出的后台通知类（upgrade/system/member/order 等）不再发短信（曾致升级提醒每日短信+静默积压 08:00 轰炸 9 条），此类走站内信+邮件；②队列节流——静默时段结束的积压每分钟最多放 10 条；③sms_notify_log 加 content 列（幂等迁移）记录发送内容摘要，杜绝「查不到发了什么」\nv1.1.4：短信模板变量名适配阿里云规范（禁用 site → 改用 store；配套通用通知模板 SMS_512638908）\nv1.1.3：补齐 1.1.2 发行包缺失的会员通用短信 sendMemberSms；min_cms 提升至 2.16.0\nv1.1.2：新增会员通用短信 sendMemberSms（通用通知模板，与告警共用阿里云账号；v2.16.0 会员通知体系）\nv1.1.1：后台导航分组（v2.8.1 导航重组）\nv1.1.0：新增会员登录验证码通道（sms.code_template_code + sms.code_enabled），与告警共用阿里云账号"
 }

@@ -119,7 +119,7 @@ class Release extends Base
         Csrf::guard();
         $id = (int)$p['id'];
         $st = (string)$req->post('status', '');
-        if (!in_array($st, ['active', 'retired'], true)) $st = 'retired';
+        if (!in_array($st, ['active', 'ladder', 'retired'], true)) $st = 'retired';
         $pkg = Database::fetch('SELECT * FROM upgrade_packages WHERE id=?', [$id]);
         if (!$pkg) { Session::flash('error', '包不存在'); \app\Core\ResponseRedirect('/admin/release'); }
         Database::run('UPDATE upgrade_packages SET status=? WHERE id=?', [$st, $id]);

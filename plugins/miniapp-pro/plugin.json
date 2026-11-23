@@ -1,0 +1,61 @@
+{
+    "slug": "miniapp-pro",
+    "name": "微信小程序",
+    "version": "1.1.5",
+    "author": "PsyIsle Official",
+    "description": "一键生成专业级微信小程序（会员/预约/排班时段/JSAPI 支付/通知），站点只需接入小程序账号。登录走 wx 中台登录桥（无需自配 AppID）或自有小程序直连；支付走站点自有商户 JSAPI；界面随站点主题自动配色。",
+    "min_cms_version": "2.17.0",
+    "dependencies": [
+        "wechat-login"
+    ],
+    "permissions": [
+        "hooks",
+        "admin_menu",
+        "settings",
+        "frontend_route"
+    ],
+    "admin_menu": {
+        "title": "微信小程序",
+        "icon": "📱",
+        "path": ""
+    },
+    "frontend_route": true,
+    "settings": [
+        {
+            "key": "miniapp.enabled",
+            "label": "启用小程序入口（BFF API）",
+            "type": "switch",
+            "default": "0"
+        },
+        {
+            "key": "miniapp.login_mode",
+            "label": "登录模式",
+            "type": "select",
+            "default": "hub",
+            "options": {
+                "hub": "中台登录桥（推荐：wx.login code 经 wx.onzx.cn 换身份，无需自配 AppID/Secret）",
+                "direct": "自有小程序直连（站点自配小程序 AppID/Secret）"
+            },
+            "help": "两种模式都要求小程序与商户号的 AppID 绑定关系正确（支付用）"
+        },
+        {
+            "key": "miniapp.appid",
+            "label": "小程序 AppID（直连模式填）",
+            "type": "text",
+            "help": "直连模式：wx.login 的 code 用此 AppID 换 openid"
+        },
+        {
+            "key": "miniapp.secret",
+            "label": "小程序 AppSecret（直连模式填，加密存储）",
+            "type": "password"
+        },
+        {
+            "key": "miniapp.pay_appid",
+            "label": "JSAPI 支付 AppID（留空=用 wxpay.jsapi_appid/wxpay.appid）",
+            "type": "text",
+            "help": "小程序 openid 所属的 AppID 必须与商户号完成 AppID 绑定；中台登录桥模式填中台小程序账号的 AppID"
+        }
+    ],
+    "signature": "KHGQmG6zMYuk/1SYwRSBHOC3ykoxWK3n0rMDUwbQh4GLSTKmj1N/a9U2KerNnlAckDt/RkuYnXFf+Y4K1bHzDA==",
+    "changelog": "v1.1.5 并发建表加固：ensureCounselorWxSchema 加进程内一次性标记 + flock 锁，并发请求下 Duplicate column / Duplicate key 静默视为「已存在」，消除重复 DDL 与日志噪声\nv1.1.4 微信平台合规修复（审核驳回：小程序内虚拟服务购买须接入官方「小程序虚拟支付」）：①移除小程序内所有在线支付调用（wx.requestPayment/pay_prepay/去支付按钮）——预约仅做登记，付费时段提交后弹「咨询费由机构在咨询前收取，请联系机构确认支付方式（也可登录网页版会员中心在线支付）」；②「我的预约」待支付项改为「支付方式」说明入口。**网页版会员中心支付保持不变**（不属小程序审核范围）\nv1.1.3 咨询师工作台（用户拍板）：①登录分流——login 按 counselor_wx（unionid→mp_openid）识别咨询师发 c 前缀令牌，小程序自动进工作台；②**咨询师身份认证**（我的页入口：机构登记手机号+验证码 → counselor_wx.mp_openid）；③工作台页（概览今日/待确认/未读/未发布小结四徽标+我的预约三视图含进咨询室按钮+通知列表点开已读+小结/作业/报告提交表单可发布与草稿，发布即站内信通知会员）；④进房凭据 role=counselor（时间窗与 WEB 同源）；⑤BFF 9 新端点 counselor_bind/me/logout/notifications/notification_read/bookings/room/note_save/clients；⑥tokenRole 体系（c 前缀咨询师令牌，黑名单共享）；⑦WEB 端配套：登录自动跳工作台、RBAC counselor-home 身份特例、咨询师管理加后台账号绑定下拉、counselor-home 微信服务号绑定卡（wxhub intent=counselor_bind 写 counselor_wx.openid）、counselor_wx 幂等迁移（mp_openid 列+openid/unionid 可空化）；⑧cns.sms_push=1（预约确认/取消短信提醒咨询师）\nv1.1.2 会员模块补齐（对齐 WEB 端全部会员功能，用户拍板）：①预约**申请改期**（我的预约行内表单，与 WEB 同规则 24h）；②**修改密码**（个人资料页，PasswordPolicy 统一 8 位策略）；③**通知偏好开关**（邮件/微信切换，saveNotifyPrefs）；④**咨询记录**（咨询师发布的小结/作业：列表+底部抽屉全文，counselor_notes visible=1）；⑤**隐私中心**（数据导出复制到剪贴板+注销申请提交后退出登录，依据个保法）；⑥**积分明细页**（余额+30 条流水）；⑦**课包页**（余量+订单+兑换码兑换 packagespro::redeem）；⑧me 页新增 4 卡片（测评记录/咨询记录/积分与课包/隐私中心）。BFF 新增 10 端点：booking_reschedule（MemberService::requestReschedule 重构为会员行注入，WEB 兼容）/password_change/prefs_save/my_notes/note_read/privacy_export/privacy_delete（注销即 revoke token）/redeem/points_detail/packages_detail\nv1.1.1（补充）：确认页支付链路修复——预约成功后支付窗未弹出/用户取消支付时按钮永久卡「提交中」（requestPayment fail 不复位 submitting）、pay_prepay 失败停留原页（重复提交撞同槽冲突）——fail 统一复位并引导至「我的预约」继续支付、无 paySign 防御跳转；我的预约页「去支付」加支付中防重复态（防重复下单）\nv1.1.1 防呆：buildZip 在 AppID 未配置（miniapp.pay_appid 空）或站点域名异常（site.domain 空→CLI localhost）时拒绝出包并记日志——杜绝生成串站/不可用小程序包（ww 站 CLI 误跑实锤：appid 取到 ww 服务号、BASE=localhost）\nv1.1.0 会员全模块进小程序：①登录/退出修复——401 自动重登并重试一次（token 过期不再卡死）、新增 logout 端点（令牌拉黑）+「我的」页退出按钮；②会员资料页（姓名/邮箱编辑+通知偏好展示，MemberService::updateProfile 新服务）；③消息中心（站内信列表/点开标已读/未读徽标，联动短信兜底取消信号）；④心理测评全流程（量表列表/一题一屏答题/提交计分/报告含维度分/历史记录——AssessmentService 从 WEB 控制器抽出共用）；⑤知情同意与协议（待签/已签列表/文档全文/手写签名板 canvas→PNG/存证号回显，复用 consent-pro 哈希存证）；⑥线上咨询室接入（我的预约行内「进入咨询室」按钮+等待室页，与 rtc-pro 同源时间窗）；⑦me 页动态卡片（测评/签署待办/消息未读/积分/课包余量）；⑧my_bookings 注入咨询室时间窗状态\nv1.0.3：修复中台登录桥成功路径 $id 未赋值（登录必 500 服务繁忙——真机无法登录根因）；queryOrderApi 解构修正（2 元返回）\nv1.0.2：修复 /pay_prepay 返回结构（JSAPI 参数原在 data.jsapi 内未透出——小程序支付拉起失败根因）；新增小程序端「取消预约」（24 小时规则+双侧通知）；首页底部热线改预约热线可点击拨打；导航标题与备案名一致\nv1.0.2：小程序端新增「取消预约」（与网页同规则：24 小时前+双侧三通道通知）；首页底部热线改预约热线并支持点击拨打；导航标题与备案名一致\nv1.0.1：buildZip 强制 https+正确 slug（首版包 BASE 会 http 且少 -pro）；front_api 手动 require MpApi（核心插件自动加载器按类名推目录，带连字符目录失配）；新增后台接入向导（自检/前置清单/源码包下载）\nv1.0.0 首发：BFF 登录桥（中台 miniprogram.login 签名调用/直连 jscode2session）、会员认人（unionid→mp_openid→占位号）、手机号短信绑定、时段查询（BookingSlots 统一服务）、预约创建（免确认/待支付状态机与网页同构）、JSAPI 支付（appid 覆盖）、我的预约、小程序源码一键生成（主题配色+API 预置）"
+}

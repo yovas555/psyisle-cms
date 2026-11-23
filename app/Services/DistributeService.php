@@ -113,10 +113,33 @@ class DistributeService
         return [$lic, 'ok', 200];
     }
 
-    /** 最新 active 核心包 */
-    public static function latestCore(): ?array
+    /**
+     * 最新 active 核心包
+     * 传 $clientVer 时按「阶梯」选包：返回客户端可直达的最高版本（min_from 不高于自身版本），
+     * 使落后多个版本的客户站能逐级升级（如 2.17.0 → 2.17.2 → 2.20.x），不至于无路可走。
+     * 不传则保持原语义（退役行只剩一个 active 时等价于取最高版本）。
+     */
+    public static function latestCore(?string $clientVer = null): ?array
     {
-        return Database::fetch("SELECT * FROM upgrade_packages WHERE kind='core' AND status='active' ORDER BY version DESC LIMIT 1");
+        // active=当前分发版本；ladder=为低版本客户保留的阶梯中间包（登记新版时不会被自动退役）
+        $rows = Database::fetchAll("SELECT * FROM upgrade_packages WHERE kind='core' AND status IN ('active','ladder')");
+        if (!$rows) {
+            return null;
+        }
+        usort($rows, static function ($a, $b) {
+            return version_compare((string)$b['version'], (string)$a['version']);
+        });
+        if ($clientVer === null || !preg_match('/^\d+\.\d+\.\d+$/', $clientVer)) {
+            return $rows[0];
+        }
+        foreach ($rows as $r) {
+            $mf = (string)($r['min_from'] ?? '');
+            if ($mf === '' || version_compare($clientVer, $mf, '>=')) {
+                return $r;
+            }
+        }
+        // 没有任何包能覆盖该客户端版本：返回 null，由调用方提示逐级升级，绝不硬塞装不上的包
+        return null;
     }
 
     /** 全部 active 插件包 */

@@ -54,8 +54,8 @@ class UpgradeApi
         [$lic, $why, $code] = DistributeService::guard($license, $domain, $nonce, (string)($_SERVER['REMOTE_ADDR'] ?? ''));
         if (!$lic) { $this->jsonFail($why, $code); }
 
-        // 核心包：仅当远端 active 版本比客户站新时给 update
-        $core = DistributeService::latestCore();
+        // 核心包：仅当远端 active 版本比客户站新时给 update；按客户版本选可直达的最高阶梯包
+        $core = DistributeService::latestCore($clientVer);
         $update = null;
         if ($core && preg_match('/^\d+\.\d+\.\d+$/', $clientVer) && version_compare($core['version'], $clientVer, '>')) {
             $update = [
@@ -64,6 +64,9 @@ class UpgradeApi
                 'released_at' => $core['released_at'], 'changelog' => str_take((string)($core['changelog'] ?? ''), 400, ''),
             ];
         }
+        // 无可直升包 = 客户端版本低于所有可分发包的 min_from，需人工介入（审计里能看到具体版本）
+        $noPath = (!$core && preg_match('/^\d+\.\d+\.\d+$/', $clientVer))
+            ? ('无可直升包：客户端 ' . $clientVer . ' 低于全部 active/ladder 包的 min_from') : '';
         // 插件包清单（客户站自行比对本地版本）
         $plugins = [];
         foreach (DistributeService::activePlugins() as $pkg) {
@@ -74,7 +77,8 @@ class UpgradeApi
             'update' => $update, 'plugins' => $plugins,
             'expires_at' => time() + 60, 'issued_at' => date('c'),
         ]);
-        DistributeService::log('check', $license, $domain, (string)($_SERVER['REMOTE_ADDR'] ?? ''), $update ? ('有新版 ' . $update['version']) : '已是最新');
+        DistributeService::log('check', $license, $domain, (string)($_SERVER['REMOTE_ADDR'] ?? ''),
+            $noPath !== '' ? $noPath : ($update ? ('有新版 ' . $update['version']) : '已是最新'));
         json_out(['ok' => true, 'payload_b64' => $signed['payload_b64'], 'signature_b64' => $signed['signature_b64']]);
     }
 
@@ -93,7 +97,7 @@ class UpgradeApi
         // 客户站必须先 check 再 token：token 携带客户端当前版本，主站复核升级合法性
         $clientVer = (string)($in['ver'] ?? '');
         if ($kind === 'core') {
-            $pkg = DistributeService::latestCore();
+            $pkg = DistributeService::latestCore($clientVer);
             if (!$pkg) $this->jsonFail('暂无可用核心升级包', 404);
             if (preg_match('/^\d+\.\d+\.\d+$/', $clientVer)) {
                 if (version_compare($pkg['version'], $clientVer, '<=')) $this->jsonFail('已是最新版本，无需升级', 400);

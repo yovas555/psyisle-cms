@@ -45,7 +45,11 @@
       <tr>
         <td><?= $k['kind'] === 'core' ? '核心' : '插件 ' . e((string)$k['slug']) ?></td>
         <td><b>v<?= e($k['version']) ?></b><?php if ($k['min_from']): ?><span class="chip">≥<?= e((string)$k['min_from']) ?></span><?php endif; ?></td>
-        <td><?= $k['status'] === 'active' ? '<span class="ok-text">分发中</span>' : '<span class="draft">已退役</span>' ?></td>
+        <td><?php
+          if ($k['status'] === 'active') echo '<span class="ok-text">分发中</span>';
+          elseif ($k['status'] === 'ladder') echo '<span class="chip" title="为低版本客户保留的阶梯中间包，登记新版时不会被自动退役">阶梯</span>';
+          else echo '<span class="draft">已退役</span>';
+        ?></td>
         <td class="muted"><?= round(((int)$k['size']) / 1024) ?>KB</td>
         <td><?= (int)$k['downloads'] ?></td>
         <td class="muted"><?= e((string)$k['released_at']) ?></td>
@@ -53,7 +57,7 @@
           <form method="post" action="/admin/release/status/<?= (int)$k['id'] ?>" style="display:inline">
             <?= csrf_field() ?>
             <input type="hidden" name="status" value="<?= $k['status'] === 'active' ? 'retired' : 'active' ?>">
-            <button class="btn btn-ghost btn-sm" type="submit"><?= $k['status'] === 'active' ? '退役' : '恢复分发' ?></button>
+            <button class="btn btn-ghost btn-sm" type="submit"><?= $k['status'] === 'active' ? '退役' : ($k['status'] === 'ladder' ? '改为分发中' : '恢复分发') ?></button>
           </form>
           <form method="post" action="/admin/release/delete/<?= (int)$k['id'] ?>" style="display:inline" data-confirm="删除后客户站将无法再获取该包，确认？">
             <?= csrf_field() ?>
