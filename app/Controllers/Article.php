@@ -27,6 +27,8 @@ class Article
             'meta' => $meta,
             'data' => $data,
             'cats' => $cats,
+            // 与 category() 共用视图：列表页无当前分类，必须显式传 null
+            'currentCat' => null,
             'crumbs' => ['首页' => url('/'), '心理资讯' => ''],
             'breadcrumbSchema' => SeoService::breadcrumbSchema(['首页' => url('/'), '心理资讯' => url('/news')]),
         ]);

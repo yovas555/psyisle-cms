@@ -1,4 +1,5 @@
 <?php /** 文章列表 */ ?>
+<?php $currentCat = $currentCat ?? null; // 列表页与分类页共用本视图，缺省视为「全部」 ?>
 <section class="section">
   <div class="container">
     <h1 class="page-title"><?= e($currentCat['name'] ?? '心理资讯') ?></h1>

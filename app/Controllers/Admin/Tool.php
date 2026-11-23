@@ -12,6 +12,7 @@ use app\Core\Session;
 use app\Core\Uploader;
 use app\Services\BackupCrypto;
 use app\Services\NotifyService;
+use app\Services\PhpDbDumper;
 use app\Services\SeoService;
 use app\Services\StatsService;
 use app\Services\Updater;
@@ -139,22 +140,36 @@ class Tool extends Base
 
         if (!$this->dumpSql($sql)) {
             @unlink($sql);
-            Session::flash('error', '数据库导出失败（检查 mysqldump 与凭据文件写入权限）');
+            Session::flash('error', '数据库导出失败（mysqldump 与内置导出均未成功，检查 storage/backups 写入权限）');
             \app\Core\ResponseRedirect('/admin/tools');
         }
         // 先压缩再加密（密文不可压缩，顺序不能反）
-        @exec('gzip -9 -c ' . escapeshellarg($sql) . ' > ' . escapeshellarg($gz));
+        // exec 被 disable_functions 拦掉时（宝塔默认）不能直接调 gzip，否则整页 500
+        if (PhpDbDumper::canExec()) {
+            @exec('gzip -9 -c ' . escapeshellarg($sql) . ' > ' . escapeshellarg($gz));
+        }
+        if (!is_file($gz) || filesize($gz) < 100) {
+            @unlink($gz);
+            PhpDbDumper::gzipFile($sql, $gz);
+        }
         @unlink($sql);
-        if (!is_file($gz) || filesize($gz) < 100 || !BackupCrypto::encryptFile($gz, $enc)) {
+        if (!is_file($gz) || filesize($gz) < 100) {
+            @unlink($gz);
+            Logger::error('backup', 'gzip failed (exec=' . (PhpDbDumper::canExec() ? 'on' : 'off') . ')');
+            Session::flash('error', '数据库压缩失败（检查 storage/backups 写入权限与 zlib 扩展）');
+            \app\Core\ResponseRedirect('/admin/tools');
+        }
+        if (!BackupCrypto::encryptFile($gz, $enc)) {
             @unlink($gz);
             @unlink($enc);
             Session::flash('error', '备份加密失败（检查 openssl 扩展与目录写权限）');
             \app\Core\ResponseRedirect('/admin/tools');
         }
         @unlink($gz);
+        clearstatcache(true, $enc);
         $this->purgeOldBackups();
-        $this->audit('tool.backup', 'database', null, ['file' => basename($enc), 'size' => filesize($enc)]);
-        Session::flash('success', '数据库备份完成（已加密）：' . basename($enc) . '（' . round(filesize($enc) / 1024) . 'KB）');
+        $this->audit('tool.backup', 'database', null, ['file' => basename($enc), 'size' => (int)@filesize($enc)]);
+        Session::flash('success', '数据库备份完成（已加密）：' . basename($enc) . '（' . round((int)@filesize($enc) / 1024) . 'KB）');
         \app\Core\ResponseRedirect('/admin/tools');
     }
 
@@ -164,6 +179,14 @@ class Tool extends Base
      */
     private function dumpSql(string $dest): bool
     {
+        // 宝塔默认 hardening 会禁用 exec/shell_exec，客户站后台备份不能因此瘫掉
+        if (!PhpDbDumper::canExec()) {
+            $r = PhpDbDumper::dumpPlain($dest);
+            if (!$r['ok']) {
+                Logger::error('backup', 'php dump fallback failed: ' . $r['msg']);
+            }
+            return $r['ok'];
+        }
         $db = CONFIG['db'];
         $cnfFile = STORAGE . '/backups/.my-' . bin2hex(random_bytes(6)) . '.cnf';
         $q = static function (string $v): string {
@@ -184,7 +207,16 @@ class Tool extends Base
             . ' > ' . escapeshellarg($dest) . ' 2>/dev/null';
         @exec($cmd, $out, $code);
         @unlink($cnfFile);
-        return is_file($dest) && filesize($dest) > 100;
+        if (is_file($dest) && filesize($dest) > 100) {
+            return true;
+        }
+        // mysqldump 不存在或被策略拦截时，退回纯 PHP 导出（纯 SQL，压缩交给上层只做一次）
+        @unlink($dest);
+        $r = PhpDbDumper::dumpPlain($dest);
+        if (!$r['ok']) {
+            Logger::error('backup', 'mysqldump failed and php dump fallback failed: ' . $r['msg']);
+        }
+        return $r['ok'];
     }
 
     /** 30 天滚动清理：只碰本模块产出的备份，不动 Updater 的 upgrade-backup-*.zip */
@@ -210,7 +242,7 @@ class Tool extends Base
         $sqlFile = $base . '.sql';
         if (!$this->dumpSql($sqlFile)) {
             @unlink($sqlFile);
-            Session::flash('error', '数据库导出失败（检查 mysqldump 与凭据文件）');
+            Session::flash('error', '数据库导出失败（mysqldump 与内置导出均未成功，检查 storage/backups 写入权限）');
             \app\Core\ResponseRedirect('/admin/tools');
         }
         $zipFile = $base . '.zip';
