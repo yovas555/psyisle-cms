@@ -51,11 +51,15 @@ final class Plugin implements NotifyChannel
      * 会员通用短信（v2.14.0 会员系统）：用「通用通知模板」（${site} ${event} ${time}），与告警共用账号
      * @return bool 发送成功与否（失败记日志）
      */
-    public static function sendMemberSms(string $phone, array $param): bool
+    /** 会员侧短信（提醒/兜底/补发）。$url 非空且模板支持时（sms.template_url_enabled=1，配新模板后开启）附加查阅短链变量 */
+    public static function sendMemberSms(string $phone, array $param, string $url = ''): bool
     {
         if (!(bool)setting('sms.enabled', '0')) return false;
         $tpl = trim((string)setting('sms.template_code', ''));
         if ($tpl === '') return false;
+        if ($url !== '' && (bool)setting('sms.template_url_enabled', '0')) {
+            $param['url'] = $url; // 新模板（含 ${url} 变量）过审后开启开关即生效
+        }
         $r = self::sendAliyun($phone, json_encode($param, JSON_UNESCAPED_UNICODE), $tpl);
         if ($r !== true) {
             Logger::error('sms-notify', 'member sms to ' . substr($phone, 0, 3) . '****' . substr($phone, -4) . ' failed: ' . (string)$r);
@@ -84,6 +88,10 @@ final class Plugin implements NotifyChannel
         if (isset(self::TYPE_SWITCHES[$type])) {
             [$swKey, $swDefault] = self::TYPE_SWITCHES[$type];
             if (!(bool)setting($swKey, $swDefault)) return false;
+        } else {
+            // v1.1.5 fail-closed：未列入白名单的后台通知类（upgrade/system/member/order/…）不发短信
+            // （曾致升级提醒等低价值通知每日短信轰炸管理员手机；此类走站内信+邮件即可）
+            return false;
         }
         $phones = self::phones();
         if (!$phones) return false;
@@ -92,7 +100,7 @@ final class Plugin implements NotifyChannel
         [$inQuiet, $deliverAt] = QuietHours::resolve($type);
         if ($inQuiet) {
             foreach ($phones as $ph) {
-                self::log($type, $ph, 'queued', null, date('Y-m-d H:i:s', $deliverAt));
+                self::log($type, $ph, 'queued', null, date('Y-m-d H:i:s', $deliverAt), $title);
             }
             return true;
         }
@@ -108,7 +116,7 @@ final class Plugin implements NotifyChannel
         $ok = false;
         foreach ($phones as $ph) {
             $r = self::sendAliyun($ph, $param);
-            self::log($type, $ph, $r === true ? 'ok' : 'fail', is_string($r) ? $r : null);
+            self::log($type, $ph, $r === true ? 'ok' : 'fail', is_string($r) ? $r : null, null, $label . '：' . $title);
             $ok = $ok || $r === true;
         }
         if (!$ok && $urgent && $type === 'crisis') {
@@ -175,7 +183,8 @@ final class Plugin implements NotifyChannel
     public static function flushQueue(): array
     {
         if (!(bool)setting('sms.enabled', '0')) return ['skipped' => 'disabled'];
-        $rows = Database::fetchAll("SELECT * FROM sms_notify_log WHERE status='queued' AND scheduled_at <= NOW() LIMIT 20");
+        // v1.1.5 节流：静默时段结束的积压每分钟最多放 10 条，避免一次性轰炸
+        $rows = Database::fetchAll("SELECT * FROM sms_notify_log WHERE status='queued' AND scheduled_at <= NOW() LIMIT 10");
         if (!$rows) return ['found' => 0];
         $okCount = 0;
         $phones = self::phones();
@@ -201,12 +210,13 @@ final class Plugin implements NotifyChannel
         'system' => '系统', 'upgrade' => '升级', 'license' => '授权', 'event' => '活动',
     ];
 
-    private static function log(string $type, string $phone, string $status, ?string $err, ?string $scheduledAt = null): void
+    private static function log(string $type, string $phone, string $status, ?string $err, ?string $scheduledAt = null, ?string $content = null): void
     {
         try {
             Database::insert('sms_notify_log', [
                 'type' => $type, 'phone_mask' => self::mask($phone), 'status' => $status,
                 'err' => $err !== null ? str_take($err, 110, '') : null,
+                'content' => $content !== null ? str_take($content, 150, '…') : null,
                 'attempts' => 0,
                 'scheduled_at' => $scheduledAt,
                 'sent_at' => $status === 'ok' ? date('Y-m-d H:i:s') : null,
@@ -239,14 +249,18 @@ final class Plugin implements NotifyChannel
                 `id` int unsigned NOT NULL AUTO_INCREMENT,
                 `type` varchar(30) NOT NULL,
                 `phone_mask` varchar(20) NULL,
-                `status` varchar(10) NOT NULL DEFAULT 'ok' COMMENT 'ok/fail/queued/failed',
+                `status` varchar(10) NOT NULL DEFAULT 'ok' COMMENT 'ok/fail/queued/failed/skip',
                 `err` varchar(120) NULL,
+                `content` varchar(160) NULL,
                 `attempts` tinyint NOT NULL DEFAULT 0,
                 `scheduled_at` datetime NULL,
                 `sent_at` datetime NULL,
                 `created_at` datetime NULL,
                 PRIMARY KEY (`id`), KEY `k_status` (`status`,`scheduled_at`), KEY `k_created` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            // v1.1.5 幂等迁移：存量表补 content 列
+            $has = (int)Database::value("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='sms_notify_log' AND COLUMN_NAME='content'");
+            if (!$has) Database::run("ALTER TABLE sms_notify_log ADD COLUMN `content` varchar(160) NULL AFTER `err`");
         } catch (\Throwable $t) {
             Logger::error('sms-notify', 'ensureTable: ' . $t->getMessage());
         }

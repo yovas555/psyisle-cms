@@ -76,6 +76,9 @@ class Auth
                 if ((int)($u['role_id'] ?? 0) === 6) { Session::set('admin_demo', true); }
                 session_regenerate_id(true);
                 $this->auditLog($u, $ip, 'login.success');
+                // v2.20.2：咨询师身份识别——绑定 counselors.user_id 的账号直进咨询师工作台
+                $cslBind = Database::value('SELECT id FROM counselors WHERE user_id=? AND status=1', [(int)$u['id']]);
+                if ($cslBind) { header('Location: /admin/counselor-home'); exit; }
                 header('Location: /admin'); exit;
             }
             // 失败计数

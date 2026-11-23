@@ -35,6 +35,22 @@ class CounselorHome extends Base
 
     // ==================== 总览 ====================
 
+    /** v2.20.2 微信服务号绑定（接收预约提醒推送）：经中台 OAuth，回调写 counselor_wx.openid */
+    public function bindWx(Request $req, array $p): void
+    {
+        $me = $this->me();
+        $bound = \app\Core\Database::value('SELECT id FROM counselor_wx WHERE counselor_id=? AND openid IS NOT NULL AND openid<>""', [(int)$me['id']]);
+        if ($bound) {
+            \app\Core\Session::flash('success', '您的微信服务号已绑定，预约提醒将推送到微信');
+            \app\Core\ResponseRedirect('/admin/counselor-home');
+        }
+        if ((string)setting('wxhub.mode', 'direct') !== 'hub') {
+            \app\Core\Session::flash('error', '微信服务号绑定需中台模式（系统设置→微信中台）');
+            \app\Core\ResponseRedirect('/admin/counselor-home');
+        }
+        \app\Core\ResponseRedirect('/plugin/wxhub-client/login?intent=counselor_bind');
+    }
+
     public function index(Request $req, array $p): void
     {
         $me = $this->me();

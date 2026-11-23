@@ -62,6 +62,12 @@ class Base
             $perms = $role ? (json_decode((string)$role['permissions'], true) ?: []) : [];
         } catch (\Throwable $t) { $perms = ['*']; }
         if (!in_array('*', $perms, true) && !in_array($node, $perms, true)) {
+            // v2.20.2 咨询师身份特例：绑定 counselors.user_id 的账号放行咨询师工作台前缀（身份即授权）
+            $path = parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?: '';
+            if (str_starts_with($path, '/admin/counselor-home')) {
+                $isCsl = (bool)Database::value('SELECT id FROM counselors WHERE user_id=? AND status=1', [(int)$u['id']]);
+                if ($isCsl) return;
+            }
             http_response_code(403);
             $this->view('no-permission', ['title' => '无权限', 'node' => $node]);
             exit;

@@ -28,6 +28,8 @@ class CounselorNotifyService
         'session_remind' => '今日咨询提醒',
         'session_starting' => '咨询即将开始',
         'note_remind' => '小结待补充',
+        'system' => '系统通知',
+        'note_published' => '小结已发布',
     ];
 
     /** 总入口：站内 + 微信 + 短信 */

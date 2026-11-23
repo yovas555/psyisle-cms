@@ -45,6 +45,7 @@ class Counselor extends Base
         'is_featured' => ['首页推荐', 'switch', []],
         'sort' => ['排序（小在前）', 'number', []],
         'status' => ['展示中', 'switch', []],
+        'user_id' => ['关联后台账号（工作台登录）', 'user_select', []],
         'seo_title' => ['SEO 标题', 'text', []],
         'seo_keywords' => ['SEO 关键词', 'text', []],
         'seo_description' => ['SEO 描述', 'textarea', ['rows' => 2]],
@@ -84,6 +85,15 @@ class Counselor extends Base
     {
         $data = parent::collect($req);
         $data['gender'] = in_array($req->post('gender', ''), ['1','2'], true) ? (int)$req->post('gender') : null;
+        // v2.20.2 工作台账号绑定：空值→NULL；同账号重复绑定其他咨询师时提示（一账号一咨询师）
+        $uid = (int)$req->post('user_id', 0);
+        if ($uid > 0) {
+            $dup = Database::fetch('SELECT id FROM counselors WHERE user_id=? AND id<>?', [$uid, (int)($req->post('id', 0) ?: 0)]);
+            if ($dup) { \app\Core\Session::flash('error', '该后台账号已绑定其他咨询师（一个账号仅可绑定一位），已清空本次绑定'); $data['user_id'] = null; }
+            else { $data['user_id'] = $uid; }
+        } else {
+            $data['user_id'] = null;
+        }
         return $data;
     }
 }

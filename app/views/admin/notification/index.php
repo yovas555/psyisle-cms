@@ -20,6 +20,27 @@ foreach (\app\Services\NotifyService::channels() as $ch) {
     <span class="muted">渠道由插件提供（邮件 = 「邮件通知」插件 · 微信 = 「微信服务号通知」插件 · 短信 = 「短信通知」插件），危机预警与登录告警即时送达所有渠道</span>
   </div>
 </div>
+<?php /** v2.20.1 未查阅兜底（管理员人工补发短信）：会员通知 30 分钟未查阅 → 此处提示 → 手动补发（短信含查阅短链） */ ?>
+<?php if (!empty($escalations)): ?>
+<div class="panel" style="margin-bottom:14px;border-left:4px solid #f59e0b">
+  <h2>⏳ 未查阅兜底（待人工补发短信）</h2>
+  <p class="muted">以下会员通知 30 分钟未查阅。短信已不再自动发送——确认需要提醒时点击「补发短信」，短信含查阅链接，会员点击即自动回执（停止补发）。</p>
+  <table class="table table-hover">
+    <thead><tr><th>会员</th><th>事件</th><th>关联单号</th><th>创建时间</th><th>操作</th></tr></thead>
+    <tbody>
+    <?php foreach ($escalations as $es): ?>
+    <tr>
+      <td><?= e((string)$es['m_name']) ?> <span class="muted"><?= e(\app\Services\MemberService::maskPhone((string)$es['m_phone'])) ?></span></td>
+      <td><?= e(['booking_confirm' => '预约确认', 'booking_cancel' => '预约取消', 'booking_reschedule' => '预约改期', 'booking_completed' => '咨询完成', 'booking_remind' => '咨询提醒', 'booking_new' => '新预约', 'assess_report' => '测评报告', 'session_starting' => '咨询开始', 'order_paid' => '订单支付'][(string)$es['event']] ?? $es['event']) ?></td>
+      <td><code><?= e((string)$es['ref_id']) ?></code></td>
+      <td class="muted"><?= e((string)$es['created_at']) ?></td>
+      <td class="ops"><button class="btn btn-sm btn-primary js-resend-sms" data-id="<?= (int)$es['id'] ?>" type="button">补发短信</button></td>
+    </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
+</div>
+<?php endif; ?>
 <div class="toolbar">
   <button class="btn btn-ghost" id="markAllRead" type="button">全部标为已读</button>
   <button class="btn btn-danger" id="clearAllNtf" type="button" data-confirm="清空全部通知（含未读）？此操作不可恢复。">清空全部</button>

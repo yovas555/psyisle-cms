@@ -58,7 +58,7 @@ class App
         $r->get('/booking/success', 'Booking@success');
         $r->get('/booking/check', 'Booking@check');
         $r->get('/booking/slots', 'Booking@slots');
-        $r->get('/n/{token:[a-f0-9]{16}}', 'NotifyClick@go');
+        $r->get('/n/{token:[a-f0-9]{8,16}}', 'NotifyClick@go');
         // v2.18：公开只读 API（api.public_enabled 开关）与 MCP Server（mcp_enabled 开关，默认关）
         $r->get('/api/public/{path:[a-zA-Z_]+}', 'PublicApi@dispatch');
         $r->post('/mcp', 'Mcp@handle');
@@ -182,6 +182,7 @@ class App
         $r->post('/admin/counselor-home/schedule', 'Admin\CounselorHome@schedule');
         $r->get('/admin/counselor-home/notes', 'Admin\CounselorHome@notes');
         $r->post('/admin/counselor-home/notes', 'Admin\CounselorHome@notes');
+        $r->get('/admin/counselor-home/bind-wx', 'Admin\CounselorHome@bindWx');
         $r->get('/admin/cron/plugins', 'Admin\Cron@plugins');
         $r->get('/admin/cron/minute', 'Admin\Cron@minute');
         $r->get('/admin/events/{id:\d+}/regs', 'Admin\Event@registrations');
@@ -245,6 +246,7 @@ class App
         $r->post('/admin/notifications/read', 'Admin\Notification@markRead');
         $r->post('/admin/notifications/delete/{id:\d+}', 'Admin\Notification@delete');
         $r->post('/admin/notifications/clear-all', 'Admin\Notification@clearAll');
+        $r->post('/admin/notifications/resend-sms/{id:\d+}', 'Admin\Notification@resendSms');
         $r->post('/admin/chat/destroy/{id:\d+}', 'Admin\Chat@destroy');
         $r->post('/admin/bookings/send-sms/{id:\d+}', 'Admin\Booking@sendSmsNow');
         $r->post('/admin/chat/handback/{id:\d+}', 'Admin\Chat@handback');

@@ -62,10 +62,9 @@ class MemberNotifyService
      *  - fallback：站内+微信+邮件先推，30 分钟无查阅回执由 Cron sweep 补发短信；
      *  - 其余事件不发短信。
      */
-    public const INSTANT_SMS_EVENTS = [
-        'session_starting',
-        'session_room_open',
-    ];
+    // v2.20.1 用户拍板：咨询开始类提醒只保留「开始前 2 小时」一条短信（Cron sessionReminders），
+    // session_starting/session_room_open 不再即时短信（微信推送+站内信足够）
+    public const INSTANT_SMS_EVENTS = [];
     public const FALLBACK_SMS_EVENTS = [
         'booking_confirm',
         'booking_cancel',
@@ -125,6 +124,10 @@ class MemberNotifyService
                 $escId = (int)($esc['id'] ?? 0);
             }
             $clickUrl = $escToken !== null ? rtrim(base_url(), '/') . '/n/' . $escToken : '';
+            // v2.20.3：未支付预约的推送直达支付页（微信内点开=JSAPI 支付，合规；小程序内不支付）
+            if ($clickUrl === '' && trim((string)($data['pay_url'] ?? '')) !== '') {
+                $clickUrl = (string)$data['pay_url'];
+            }
 
             // 1. 微信通道（插件 Hook：wxhub 中台 / wechat-login 直连 响应并返回 true；click_url 供模板消息跳转采集查阅回执）
             $wechatOk = false;
@@ -234,12 +237,16 @@ class MemberNotifyService
                     mail_ok tinyint(1) NOT NULL DEFAULT 0,
                     read_at datetime NULL,
                     sms_at datetime NULL,
+                    admin_notified_at datetime NULL,
                     created_at datetime NULL,
                     PRIMARY KEY (id),
                     UNIQUE KEY uk_token (click_token),
                     KEY k_member (member_id, created_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
             }
+            // v2.20.1 幂等迁移：存量表补 admin_notified_at（兜底改管理员人工补发制的台账标记）
+            $hasAn = (int)Database::value("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='notify_escalations' AND COLUMN_NAME='admin_notified_at'");
+            if (!$hasAn) Database::run("ALTER TABLE notify_escalations ADD COLUMN admin_notified_at datetime NULL AFTER sms_at");
         } catch (\Throwable $t) {
             Logger::error('member-notify', 'ensure escalation table: ' . $t->getMessage());
         }
@@ -248,7 +255,7 @@ class MemberNotifyService
     /** 登记兜底台账：返回 ['id'=>…, 'token'=>…] */
     private static function registerEscalation(int $memberId, string $event, array $data, int $inappId): array
     {
-        $token = bin2hex(random_bytes(8));
+        $token = bin2hex(random_bytes(4)); // v2.20.2：8 位（短信 link_param 变量 ≤8 字符要求；存量 16 位仍可点击）
         try {
             $id = (int)Database::insert('notify_escalations', [
                 'member_id' => $memberId, 'event' => $event,
@@ -296,44 +303,71 @@ class MemberNotifyService
      * 口径（用户拍板 2026-11-19）：「微信和邮件推送都未被查阅（至少半小时）后的补充推送」；
      * read_at 任一信号（站内信已读 / 微信模板链接点击 / 邮件链接点击）即视为已查阅。
      */
+    /**
+     * v2.20.1 兜底规则（用户拍板修订）：30 分钟未查阅**不再自动发会员短信**，
+     * 改为站内信+邮件提醒管理员，由管理员在后台通知中心手动点击「补发短信」。
+     * admin_notified_at 幂等（每位会员每轮只提醒一次管理员）；会员查阅（read_at）后自动关闭。
+     */
     public static function sweepEscalations(): int
     {
         self::ensureEscalationTable();
-        if (!class_exists(\plugins\smsnotify\Plugin::class) || !(bool)setting('sms.enabled', '0')
-            || trim((string)setting('sms.template_code', '')) === '') {
-            return 0;
-        }
-        $sent = 0;
+        $notified = 0;
         try {
             $rows = Database::fetchAll(
-                "SELECT e.*, m.phone, m.notify_prefs FROM notify_escalations e
+                "SELECT e.id, e.member_id, e.event, e.ref_type, e.ref_id, e.click_token, m.name AS m_name, m.phone AS m_phone
+                 FROM notify_escalations e
                  JOIN members m ON m.id=e.member_id AND m.status='active'
-                 WHERE e.sms_at IS NULL AND e.read_at IS NULL
+                 WHERE e.admin_notified_at IS NULL AND e.sms_at IS NULL AND e.read_at IS NULL
                    AND e.created_at <= NOW() - INTERVAL 30 MINUTE LIMIT 30");
             foreach ($rows as $e) {
-                $prefs = json_decode((string)($e['notify_prefs'] ?? ''), true) ?: [];
-                if (($prefs['sms'] ?? true) === false) {
-                    Database::run('UPDATE notify_escalations SET sms_at=NOW() WHERE id=?', [(int)$e['id']]);
-                    continue;
-                }
-                $phone = (string)($e['phone'] ?? '');
-                if (!preg_match('/^1[3-9]\d{9}$/', $phone)) {
-                    Database::run('UPDATE notify_escalations SET sms_at=NOW() WHERE id=?', [(int)$e['id']]);
-                    continue;
-                }
-                $site = (string)setting('site.name', '');
                 $label = self::EVENTS[(string)$e['event']] ?? '通知';
-                $ok = \plugins\smsnotify\Plugin::sendMemberSms($phone,
-                    ['store' => str_take($site, 12, ''), 'event' => str_take($label . '（提醒查阅）', 20, ''), 'time' => date('m-d H:i')]);
-                Database::run('UPDATE notify_escalations SET sms_at=NOW() WHERE id=?', [(int)$e['id']]);
-                self::log((int)$e['member_id'], (string)$e['event'], 'sms', $ok ? 'ok' : 'fail',
-                    $ok ? null : '短信兜底发送失败', $label . '（30 分钟未查阅兜底）');
-                if ($ok) $sent++;
+                \app\Services\NotifyService::push('member_escalation', '会员通知 30 分钟未查阅（可补发短信）',
+                    '会员 ' . \app\Services\MemberService::maskPhone((string)$e['m_phone']) . '（' . (string)$e['m_name'] . '）的「' . $label . '」通知 30 分钟未查阅。'
+                    . '请到 通知中心→未查阅兜底 手动补发短信（短信含查阅链接，点击即回执）。',
+                    ['type' => 'escalation', 'id' => (string)$e['id']]);
+                Database::run('UPDATE notify_escalations SET admin_notified_at=NOW() WHERE id=?', [(int)$e['id']]);
+                self::log((int)$e['member_id'], (string)$e['event'], 'escalate', 'notified', null, $label . '（30 分钟未查阅，已提醒管理员人工补发）');
+                $notified++;
             }
         } catch (\Throwable $t) {
             Logger::error('member-notify', 'sweep: ' . $t->getMessage());
         }
-        return $sent;
+        return $notified;
+    }
+
+    /**
+     * 管理员手动补发兜底短信（后台通知中心「未查阅兜底」区块按钮）。
+     * 短信内容带 /n/{click_token} 查阅短链：会员点击即回执（read_at 置位，短信不再补发）。
+     * 返回 [ok, msg]。 sms.enabled 未配置时返回失败指引。
+     */
+    public static function resendEscalationSms(int $escalationId): array
+    {
+        self::ensureEscalationTable();
+        if (!class_exists(\plugins\smsnotify\Plugin::class) || !(bool)setting('sms.enabled', '0')
+            || trim((string)setting('sms.template_code', '')) === '') {
+            return [false, '短信通道未配置（系统设置→短信），无法补发'];
+        }
+        $e = Database::fetch(
+            'SELECT e.*, m.phone AS m_phone FROM notify_escalations e JOIN members m ON m.id=e.member_id AND m.status=\'active\' WHERE e.id=?',
+            [$escalationId]);
+        if (!$e) return [false, '台账记录不存在'];
+        if ((string)$e['read_at'] !== '') return [false, '该会员已查阅此通知，无需补发'];
+        if ((string)$e['sms_at'] !== '') return [false, '该条短信已补发过（避免重复打扰）'];
+        $phone = (string)$e['m_phone'];
+        if (!preg_match('/^1[3-9]\d{9}$/', $phone)) return [false, '会员手机号无效'];
+        $label = self::EVENTS[(string)$e['event']] ?? '通知';
+        $site = (string)setting('site.name', '');
+        $link = rtrim(base_url(), '/') . '/n/' . (string)$e['click_token'];
+        // v2.20.2 链接模板模式（sms.template_url_enabled=1 配 SMS_512529084）：变量 notice/time2/code，域名固定在模板内
+        $param = (bool)setting('sms.template_url_enabled', '0')
+            ? ['notice' => str_take($label, 20, ''), 'time2' => date('m-d H:i'), 'code' => (string)$e['click_token']]
+            : ['store' => str_take($site, 12, ''), 'event' => str_take($label, 20, ''), 'time' => date('m-d H:i')];
+        $ok = \plugins\smsnotify\Plugin::sendMemberSms($phone, $param,
+            (bool)setting('sms.template_url_enabled', '0') ? '' : $link);
+        Database::run('UPDATE notify_escalations SET sms_at=NOW() WHERE id=?', [$escalationId]);
+        self::log((int)$e['member_id'], (string)$e['event'], 'sms', $ok ? 'ok' : 'fail',
+            $ok ? null : '管理员手动补发失败', $label . '（管理员手动补发，含查阅短链）');
+        return $ok ? [true, '补发短信成功（含查阅链接，点击即回执）'] : [false, '补发失败：' . ($ok === false ? '通道返回异常' : '未知错误')];
     }
 
     /** 品牌邮件（对标 VIP 站邮件口径：清晰正文+键值明细+行动链接）；CTA 优先走中转短链（查阅回执） */

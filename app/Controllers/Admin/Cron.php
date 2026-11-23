@@ -97,10 +97,11 @@ class Cron
     }
 
     /**
-     * v2.14.0 咨询提醒引擎（每分钟 cron）：
-     *  - 前 3 小时：短信提醒（会员+咨询师，防重 remind_sms_3h_at）
-     *  - 前 10 分钟：服务号微信推送（method=视频，含开启时间与进房路径；未确认）
-     *  - 前 1 小时：若会员未确认（remind_wx_seen_at 为空）→ 短信补推（防重 remind_sms_1h_at）
+     * v2.20.1 咨询提醒引擎（每分钟 cron；用户拍板：短信提醒仅保留一条——开始前 2 小时）：
+     *  - 前 2 小时：短信提醒（会员+咨询师，防重 remind_sms_3h_at 字段复用，语义改为 2h）
+     *  - 前 10 分钟：服务号微信推送（method=视频，含开启时间与进房路径）——非短信通道
+     *  - 前 30 分钟：双方微信提醒（session_starting 已移出即时短信矩阵，不再发短信）
+     *  - 8:00 当日汇总（morningPush，微信+站内信）
      */
     private static function sessionReminders(): void
     {
@@ -112,7 +113,7 @@ class Cron
              LEFT JOIN counselors c ON c.id=b.counselor_id
              LEFT JOIN members m ON m.phone=b.phone AND m.status='active'
              WHERE b.status='confirmed' AND b.prefer_date=CURDATE()
-               AND (b.remind_sms_3h_at IS NULL OR b.remind_sms_1h_at IS NULL OR b.remind_wx_seen_at IS NULL)");
+               AND (b.remind_sms_3h_at IS NULL OR b.remind_wx_seen_at IS NULL)");
         foreach ($rows as $b) {
             $slot = (string)$b['prefer_slot'];
             if (!preg_match('/^(\d{1,2}):(\d{2})/', $slot, $mm)) continue;
@@ -144,8 +145,8 @@ class Cron
                     ]);
                 }
             }
-            // ① 前 3 小时短信（会员+咨询师）；v2.17.0 修复：至少一条成功即置位（防重复轰炸），全失败下分钟重试
-            if ($diff > 0 && $diff <= 3 * 3600 && $b['remind_sms_3h_at'] === null) {
+            // ① 前 2 小时短信（会员+咨询师）——唯一保留的咨询开始短信提醒；至少一条成功即置位（防重复轰炸），全失败下分钟重试
+            if ($diff > 0 && $diff <= 2 * 3600 && $b['remind_sms_3h_at'] === null) {
                 if ($smsReady) {
                     $label = '咨询即将开始';
                     $phones = [];
@@ -163,7 +164,7 @@ class Cron
                     Database::run('UPDATE bookings SET remind_sms_3h_at=NOW() WHERE id=?', [$bid]);
                 }
             }
-            // ② 前 10 分钟：视频咨询会员进房推送（进房后 remind_wx_seen_at 由 rtc-pro 落点防重）
+            // ② 前 10 分钟：视频咨询会员进房推送（微信+站内信；v2.20.1 已移出即时短信矩阵）
             $isVideo = mb_stripos((string)$b['method'], '视频') !== false;
             if ($isVideo && $diff > 0 && $diff <= 10 * 60 && $mid > 0 && $b['remind_wx_seen_at'] === null) {
                 \app\Services\MemberNotifyService::push($mid, 'session_room_open', [
@@ -173,21 +174,7 @@ class Cron
                     'inapp_url' => '/plugin/rtc-pro/room/' . $bid,
                     'ref_type' => 'booking', 'ref_id' => (string)$b['code'],
                 ]);
-            }
-            // ③ 前 1 小时：未确认（未进房）→ 短信补推（会员+咨询师）；至少一条成功即置位
-            if ($diff > 0 && $diff <= 3600 && $b['remind_wx_seen_at'] === null && $b['remind_sms_1h_at'] === null) {
-                if ($smsReady) {
-                    $sentAny1h = false;
-                    foreach (array_filter([(string)$b['phone'], (string)($b['csl_phone'] ?? '')]) as $ph) {
-                        if (!preg_match('/^1[3-9]\d{9}$/', $ph)) continue;
-                        if (\plugins\smsnotify\Plugin::sendMemberSms($ph, ['store' => str_take($site, 12, ''), 'event' => str_take('咨询1小时后开始', 20, ''), 'time' => $when])) $sentAny1h = true;
-                    }
-                    if ($sentAny1h) {
-                        Database::run('UPDATE bookings SET remind_sms_1h_at=NOW() WHERE id=?', [$bid]);
-                    }
-                } else {
-                    Database::run('UPDATE bookings SET remind_sms_1h_at=NOW() WHERE id=?', [$bid]);
-                }
+                Database::run('UPDATE bookings SET remind_wx_seen_at=COALESCE(remind_wx_seen_at,NOW()) WHERE id=?', [$bid]); // 推送即视为已提醒（10 分钟节点不再重复）
             }
         }
     }

@@ -11,6 +11,18 @@
   </div>
 </div>
 
+<?php $wxBound = (bool)\app\Core\Database::value('SELECT id FROM counselor_wx WHERE counselor_id=? AND openid IS NOT NULL AND openid<>""', [(int)$me['id']]); ?>
+<div class="panel" style="margin-top:14px">
+  <h2>微信提醒绑定</h2>
+  <div class="toolbar">
+    <?php if ($wxBound): ?>
+    <span class="chip"><b class="ok">✓</b> 服务号已绑定，预约提醒将推送到微信</span>
+    <?php else: ?>
+    <a class="btn btn-primary" href="<?= url('/admin/counselor-home/bind-wx') ?>">绑定微信服务号（接收预约提醒）</a>
+    <span class="muted">绑定后：新预约/取消/改期即时微信推送；手机号短信提醒由机构设置控制</span>
+    <?php endif; ?>
+  </div>
+</div>
 <div class="panel" style="margin-top:14px">
   <h2>近期预约（已确认/已改期）</h2>
   <?php if ($upcoming): ?>

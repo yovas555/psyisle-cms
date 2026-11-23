@@ -66,6 +66,18 @@ if ($isEdit && $baseSeg === 'counselors') {
         <option value="published" <?= $val === 'published' ? 'selected' : '' ?>>发布</option>
       </select>
     </label>
+    <?php elseif ($type === 'user_select'): ?>
+    <?php /* v2.20.2 咨询师工作台绑定：users 账号下拉（绑定后该账号登录直进咨询师工作台） */ ?>
+    <label class="field">
+      <span class="label"><?= e($label) ?></span>
+      <select name="<?= e($name) ?>">
+        <option value="">未绑定</option>
+        <?php foreach (\app\Core\Database::fetchAll('SELECT id, username, display_name FROM users WHERE status=1 ORDER BY username') as $u): ?>
+        <option value="<?= (int)$u['id'] ?>" <?= (int)$val === (int)$u['id'] ? 'selected' : '' ?>><?= e(($u['display_name'] ?: $u['username']) . '（' . $u['username'] . '）') ?></option>
+        <?php endforeach; ?>
+      </select>
+      <span class="hint">绑定后该后台账号登录即进入咨询师工作台；同一账号仅可绑定一位咨询师</span>
+    </label>
     <?php elseif ($type === 'category_select'): ?>
     <label class="field">
       <span class="label"><?= e($label) ?></span>

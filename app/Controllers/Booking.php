@@ -257,12 +257,16 @@ class Booking
         $notifyEvent = $autoConfirmed ? 'booking_confirm' : 'booking_new';
         $notifyMid = $mCur2 ? (int)$mCur2['id'] : \app\Services\MemberNotifyService::memberIdByPhone((string)$data['phone']);
         $notifyData = [
-            'title' => ($autoConfirmed ? '预约成功' : '预约已提交') . '：' . $code,
+            'title' => ($autoConfirmed ? '预约成功' : '预约已提交') . ($payStatus === 'unpaid' ? '（待支付）' : '') . '：' . $code,
             'body' => ($data['prefer_date'] ?: '待定') . ' ' . ($data['prefer_slot'] ?? '') . ' · ' . ($data['method'] ?? ''),
             'lines' => ['查询码' => $code, '日期' => $data['prefer_date'] ?: '不限', '时段' => $data['prefer_slot'] ?? '', '方式' => $data['method'] ?? '',
                 '状态' => $autoConfirmed ? '已确认生效' : '待机构确认'],
             'inapp_url' => '/member/bookings', 'ref_type' => 'booking', 'ref_id' => $code,
-            'note' => $autoConfirmed ? '本次预约来自可约时段，无需机构确认，直接生效。' : '',
+            // v2.20.3 待支付：推送/邮件直达支付页（微信内打开=JSAPI 支付）
+            'pay_url' => $payStatus === 'unpaid' ? url('/plugin/wechat-pay/pay-booking/' . (int)$id) : '',
+            'cta_url' => $payStatus === 'unpaid' ? url('/plugin/wechat-pay/pay-booking/' . (int)$id) : '',
+            'note' => $autoConfirmed ? '本次预约来自可约时段，无需机构确认，直接生效。'
+                : ($payStatus === 'unpaid' ? '预约已保留，请点击本消息进入支付页完成咨询费支付（微信内可直接支付）。' : ''),
             'booking' => ['id' => $id, 'code' => $code, 'phone' => (string)$data['phone'], 'name' => (string)$data['name'],
                 'prefer_date' => $data['prefer_date'], 'prefer_slot' => $data['prefer_slot'], 'counselor_id' => (int)($data['counselor_id'] ?? 0)],
         ];

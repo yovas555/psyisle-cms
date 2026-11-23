@@ -236,7 +236,8 @@ class MemberService
     /** 保存通知偏好（短信通道启用后允许关闭邮件/微信；未启用短信时邮件保持开启） */
     public static function saveNotifyPrefs(int $memberId, bool $mail, bool $wechat): array
     {
-        $smsOn = class_exists(\plugins\smsnotify\Plugin::class) && \plugins\smsnotify\Plugin::enabled();
+        // enabled() 是实例方法（NotifyChannel 接口），静态调用在 HTTP 下会因 error handler 抛 ErrorException
+        $smsOn = class_exists(\plugins\smsnotify\Plugin::class) && (new \plugins\smsnotify\Plugin())->enabled();
         if (!$smsOn && !$mail) return [false, '短信通知未启用，邮件通知不可关闭（保证至少一条通知通道）'];
         $prefs = json_encode(['mail' => $mail ? 1 : 0, 'wechat' => $wechat ? 1 : 0], JSON_UNESCAPED_UNICODE);
         Database::run('UPDATE members SET notify_prefs=? WHERE id=?', [$prefs, $memberId]);
@@ -324,9 +325,10 @@ class MemberService
     }
 
     /** 改期申请：记录到机构备注 + 通知（管理员改后回电确认） */
-    public static function requestReschedule(int $memberId, int $bookingId, string $newDate, string $newSlot): array
+    /** v2.20.2：改会员行注入参数（WEB 会话与小程序 BFF 共用）；兼容旧签名（传 int 时按 WEB 会话取） */
+    public static function requestReschedule($m, int $bookingId, string $newDate, string $newSlot): array
     {
-        $m = self::current();
+        if (is_int($m)) $m = self::current() ?? [];
         if (!$m) return [false, '请先登录'];
         $b = Database::fetch('SELECT * FROM bookings WHERE id=? AND phone=?', [$bookingId, $m['phone']]);
         if (!$b) return [false, '预约不存在或无权操作'];

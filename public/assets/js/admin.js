@@ -343,6 +343,25 @@
         .then(function (d) { if (d.ok) window.location.reload(); });
     });
   });
+  // v2.20.1 未查阅兜底：手动补发短信（含查阅短链）
+  document.querySelectorAll('.js-resend-sms').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (btn.disabled) return;
+      if (!window.confirm('确认补发该会员兜底短信？短信含查阅链接，会员点击即回执。')) return;
+      btn.disabled = true; btn.textContent = '发送中…';
+      fetch('/admin/notifications/resend-sms/' + btn.getAttribute('data-id'), {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: '_token=' + encodeURIComponent(CSRF_TOKEN)
+      }).then(function (r) { return r.json(); })
+        .then(function (d) {
+          btn.disabled = false; btn.textContent = '补发短信';
+          window.alert(d.message || (d.ok ? '补发成功' : '补发失败'));
+          if (d.ok) window.location.reload();
+        })
+        .catch(function () { btn.disabled = false; btn.textContent = '补发短信'; window.alert('网络异常，请重试'); });
+    });
+  });
   // 清空全部通知
   var clearAll = document.getElementById('clearAllNtf');
   if (clearAll) {
