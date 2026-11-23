@@ -94,9 +94,27 @@ class MemberService
             $m = Database::fetch('SELECT * FROM members WHERE phone=?', [$phone]);
             NotifyService::push('member', '新会员注册', '手机号 ' . self::maskPhone($phone) . ' 已加入会员中心');
         }
-        Session::set('member_user', ['id' => (int)$m['id'], 'phone' => $phone, 'name' => $m['name']]);
-        Session::set('member_ua', hash('sha256', (string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
+        self::bindMemberSession($m);
         return [true, '登录成功'];
+    }
+
+    /**
+     * 绑定会员会话（v2.21.0 安全加固）
+     * 先轮换 session id 再写会话，防会话固定（攻击者预置 sessid 后诱导登录）。
+     * 预约码 / 短信 / 密码 / 微信四条登录入口统一走这里。
+     */
+    private static function bindMemberSession(array $m): void
+    {
+        Session::start();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            @session_regenerate_id(true);
+        }
+        Session::set('member_user', [
+            'id' => (int)$m['id'],
+            'phone' => (string)$m['phone'],
+            'name' => $m['name'] ?? null,
+        ]);
+        Session::set('member_ua', hash('sha256', (string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
     }
 
     /**
@@ -110,8 +128,7 @@ class MemberService
         $now = date('Y-m-d H:i:s');
         $ipHash = md5(($_SERVER['REMOTE_ADDR'] ?? '') . (CONFIG['stats_salt'] ?? 'psyisle-salt'));
         Database::run('UPDATE members SET last_login_at=?, last_login_ip_hash=? WHERE id=?', [$now, $ipHash, (int)$m['id']]);
-        Session::set('member_user', ['id' => (int)$m['id'], 'phone' => (string)$m['phone'], 'name' => $m['name']]);
-        Session::set('member_ua', hash('sha256', (string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
+        self::bindMemberSession($m);
         return [true, '登录成功'];
     }
 
@@ -137,8 +154,7 @@ class MemberService
         }
         $ipHash = md5(($_SERVER['REMOTE_ADDR'] ?? '') . (CONFIG['stats_salt'] ?? 'psyisle-salt'));
         Database::run('UPDATE members SET last_login_at=?, last_login_ip_hash=? WHERE id=?', [date('Y-m-d H:i:s'), $ipHash, (int)$m['id']]);
-        Session::set('member_user', ['id' => (int)$m['id'], 'phone' => $phone, 'name' => $m['name']]);
-        Session::set('member_ua', hash('sha256', (string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
+        self::bindMemberSession($m);
         return [true, '登录成功'];
     }
 
@@ -166,8 +182,11 @@ class MemberService
             // 已有会员（预约建立）→ 设置密码完成激活
             Database::run('UPDATE members SET password_hash=?, name=COALESCE(NULLIF(?,""),name), email=COALESCE(NULLIF(?,""),email), last_login_at=? WHERE id=?',
                 [password_hash($password, PASSWORD_BCRYPT), $name, $email, date('Y-m-d H:i:s'), (int)$m['id']]);
-            Session::set('member_user', ['id' => (int)$m['id'], 'phone' => $phone, 'name' => $name !== '' ? $name : $m['name']]);
-            Session::set('member_ua', hash('sha256', (string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
+            self::bindMemberSession([
+                'id' => (int)$m['id'],
+                'phone' => $phone,
+                'name' => $name !== '' ? $name : ($m['name'] ?? null),
+            ]);
             return [true, '激活成功，欢迎加入会员中心'];
         }
         $ipHash = md5(($_SERVER['REMOTE_ADDR'] ?? '') . (CONFIG['stats_salt'] ?? 'psyisle-salt'));
@@ -181,8 +200,11 @@ class MemberService
             'last_login_at' => date('Y-m-d H:i:s'),
             'last_login_ip_hash' => $ipHash,
         ]);
-        Session::set('member_user', ['id' => (int)Database::value('SELECT id FROM members WHERE phone=?', [$phone]), 'phone' => $phone, 'name' => $name]);
-        Session::set('member_ua', hash('sha256', (string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
+        self::bindMemberSession([
+            'id' => (int)Database::value('SELECT id FROM members WHERE phone=?', [$phone]),
+            'phone' => $phone,
+            'name' => $name !== '' ? $name : null,
+        ]);
         NotifyService::push('member', '新会员注册', '手机号 ' . self::maskPhone($phone) . ' 完成注册（手机号+密码）');
         return [true, '注册成功，欢迎加入会员中心'];
     }

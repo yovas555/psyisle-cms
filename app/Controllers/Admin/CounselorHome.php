@@ -8,6 +8,7 @@ use app\Core\Database;
 use app\Core\Purifier;
 use app\Core\Request;
 use app\Core\Session;
+use app\Services\CounselorScope;
 
 /**
  * 咨询师工作台（v2.10.0）
@@ -241,16 +242,33 @@ class CounselorHome extends Base
                     Session::flash('error', '请选择咨客并填写标题与正文');
                     \app\Core\ResponseRedirect('/admin/counselor-home/notes');
                 }
-                $owned = Database::fetch('SELECT id FROM members WHERE id=?', [$mid]);
-                if (!$owned) { Session::flash('error', '咨客不存在'); \app\Core\ResponseRedirect('/admin/counselor-home/notes'); }
+                // P0-G1：写入必须校验归属，不能只判"会员存在"（否则可向任意 member_id 写记录）。
+                // 编辑本人既有记录放行（兼容历史数据）；新建要求该咨客与本咨询师存在预约关系。
+                $noteOwned = $nid > 0 && (bool)Database::fetch(
+                    'SELECT id FROM counselor_notes WHERE id=? AND counselor_id=?',
+                    [$nid, $cid]
+                );
+                if (!$noteOwned) {
+                    if (!(bool)Database::value('SELECT id FROM members WHERE id=?', [$mid])) {
+                        Session::flash('error', '咨客不存在');
+                        \app\Core\ResponseRedirect('/admin/counselor-home/notes');
+                    }
+                    if (!CounselorScope::canAccessMember($cid, $mid)) {
+                        \app\Core\Logger::error('counselor', 'denied note write counselor=' . $cid . ' member=' . $mid);
+                        Session::flash('error', '仅可为与您有过预约的咨客记录');
+                        \app\Core\ResponseRedirect('/admin/counselor-home/notes');
+                    }
+                }
                 if ($nid) {
                     Database::run('UPDATE counselor_notes SET member_id=?, booking_id=?, kind=?, title=?, content=?, visible=?, updated_at=NOW() WHERE id=? AND counselor_id=?', [
                         $mid, (int)$req->post('booking_id', 0) ?: null, $kind, $title, $content,
                         !empty($req->post('visible')) ? 1 : 0, $nid, $cid,
                     ]);
+                    // P0-G5：咨询记录写入留痕（谁能看、谁改过，监管必问）
+                    $this->audit('note.update', 'counselor_notes', $nid, ['member_id' => $mid, 'kind' => $kind]);
                     Session::flash('success', '记录已更新');
                 } else {
-                    Database::insert('counselor_notes', [
+                    $newId = Database::insert('counselor_notes', [
                         'counselor_id' => $cid, 'member_id' => $mid,
                         'booking_id' => (int)$req->post('booking_id', 0) ?: null,
                         'kind' => $kind, 'title' => $title, 'content' => $content,
@@ -258,12 +276,14 @@ class CounselorHome extends Base
                         'created_by' => (int)(Session::get('admin_user')['id'] ?? 0),
                         'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
                     ]);
+                    $this->audit('note.create', 'counselor_notes', $newId, ['member_id' => $mid, 'kind' => $kind, 'visible' => !empty($req->post('visible'))]);
                     Session::flash('success', '记录已创建' . (!empty($req->post('visible')) ? '，咨客可在会员中心阅读' : '（暂不可见）'));
                 }
                 \app\Core\ResponseRedirect('/admin/counselor-home/notes');
             }
             if ($act === 'toggle') {
                 Database::run('UPDATE counselor_notes SET visible=1-visible, updated_at=NOW() WHERE id=? AND counselor_id=?', [$nid, $cid]);
+                $this->audit('note.visibility', 'counselor_notes', $nid, []);
                 Session::flash('success', '可见性已切换');
                 \app\Core\ResponseRedirect('/admin/counselor-home/notes');
             }
@@ -275,6 +295,11 @@ class CounselorHome extends Base
             "SELECT DISTINCT m.id, m.phone, m.name FROM members m
              WHERE m.phone IN (SELECT phone FROM bookings WHERE counselor_id=?) ORDER BY m.id DESC LIMIT 100", [$cid]);
         $edit = $req->get('edit', '') !== '' ? Database::fetch('SELECT * FROM counselor_notes WHERE id=? AND counselor_id=?', [(int)$req->get('edit'), $cid]) : null;
+        // P0-G5：查阅留痕。列表一次一记（条数 + 涉及咨客数），单条编辑视图记具体记录 id。
+        $this->audit('note.view', 'counselor_notes', $edit ? (int)$edit['id'] : null, [
+            'list_count' => count($rows),
+            'members' => count(array_unique(array_map(static fn($r) => (int)$r['member_id'], $rows))),
+        ]);
         $this->view('counselor-home/notes', ['rows' => $rows, 'members' => $members, 'edit' => $edit]);
     }
 

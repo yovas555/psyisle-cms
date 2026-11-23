@@ -10,6 +10,7 @@ use app\Core\Logger;
 use app\Core\Request;
 use app\Core\Session;
 use app\Core\Uploader;
+use app\Services\BackupCrypto;
 use app\Services\NotifyService;
 use app\Services\SeoService;
 use app\Services\StatsService;
@@ -82,11 +83,14 @@ class Tool extends Base
     public function index(Request $req, array $p): void
     {
         $backups = [];
-        foreach (glob(STORAGE . '/backups/*.sql.gz') ?: [] as $f) {
-            $backups[] = ['file' => basename($f), 'size' => filesize($f), 'mtime' => date('Y-m-d H:i', filemtime($f))];
-        }
-        foreach (glob(STORAGE . '/backups/*.zip') ?: [] as $f) {
-            $backups[] = ['file' => basename($f), 'size' => filesize($f), 'mtime' => date('Y-m-d H:i', filemtime($f))];
+        // v2.21.0：备份一律加密落盘（.enc）；旧版明文 gz/zip 若仍存在也列出来提示尽快清理
+        foreach (glob(STORAGE . '/backups/*.{enc,sql.gz,zip}', GLOB_BRACE) ?: [] as $f) {
+            $backups[] = [
+                'file' => basename($f),
+                'size' => filesize($f),
+                'mtime' => date('Y-m-d H:i', filemtime($f)),
+                'encrypted' => BackupCrypto::isEncrypted($f),
+            ];
         }
         usort($backups, fn($a, $b) => strcmp($b['mtime'], $a['mtime']));
         $logs = [];
@@ -128,33 +132,73 @@ class Tool extends Base
     public function backup(Request $req, array $p): void
     {
         Csrf::guard();
-        $db = CONFIG['db'];
-        $file = STORAGE . '/backups/db-' . date('Ymd-His') . '.sql.gz';
-        $dumpCmd = sprintf(
-            'mysqldump --host=%s --port=%s --user=%s --password=%s %s 2>/dev/null | gzip > %s',
-            escapeshellarg($db['host'] ?? '127.0.0.1'),
-            escapeshellarg((string)($db['port'] ?? '3306')),
-            escapeshellarg($db['user'] ?? 'root'),
-            escapeshellarg($db['pass'] ?? ''),
-            escapeshellarg($db['name'] ?? 'psyisle'),
-            escapeshellarg($file)
-        );
-        @exec($dumpCmd, $out, $code);
-        $ok = is_file($file) && filesize($file) > 100;
-        if ($ok) {
-            // 清理 30 天前备份
-            foreach (glob(STORAGE . '/backups/*.sql.gz') ?: [] as $f) {
-                if (filemtime($f) < strtotime('-30 days')) @unlink($f);
-            }
-            $this->audit('tool.backup', 'database', null, ['file' => basename($file), 'size' => filesize($file)]);
-            Session::flash('success', '数据库备份完成：' . basename($file));
-        } else {
-            Session::flash('error', '备份失败（检查 mysqldump 可用性）');
+        $base = STORAGE . '/backups/db-' . date('Ymd-His');
+        $sql  = $base . '.sql';
+        $gz   = $base . '.sql.gz';
+        $enc  = $base . '.sql.gz.enc';
+
+        if (!$this->dumpSql($sql)) {
+            @unlink($sql);
+            Session::flash('error', '数据库导出失败（检查 mysqldump 与凭据文件写入权限）');
+            \app\Core\ResponseRedirect('/admin/tools');
         }
+        // 先压缩再加密（密文不可压缩，顺序不能反）
+        @exec('gzip -9 -c ' . escapeshellarg($sql) . ' > ' . escapeshellarg($gz));
+        @unlink($sql);
+        if (!is_file($gz) || filesize($gz) < 100 || !BackupCrypto::encryptFile($gz, $enc)) {
+            @unlink($gz);
+            @unlink($enc);
+            Session::flash('error', '备份加密失败（检查 openssl 扩展与目录写权限）');
+            \app\Core\ResponseRedirect('/admin/tools');
+        }
+        @unlink($gz);
+        $this->purgeOldBackups();
+        $this->audit('tool.backup', 'database', null, ['file' => basename($enc), 'size' => filesize($enc)]);
+        Session::flash('success', '数据库备份完成（已加密）：' . basename($enc) . '（' . round(filesize($enc) / 1024) . 'KB）');
         \app\Core\ResponseRedirect('/admin/tools');
     }
 
-    /** 全量备份：数据库 + uploads 压缩为一个 zip */
+    /**
+     * 导出 SQL 到指定文件（v2.21.0 · P0-G4）
+     * 凭据走临时 defaults-extra-file（0600，跑完即删），不再把密码拼进命令行——否则同机 `ps` 可见。
+     */
+    private function dumpSql(string $dest): bool
+    {
+        $db = CONFIG['db'];
+        $cnfFile = STORAGE . '/backups/.my-' . bin2hex(random_bytes(6)) . '.cnf';
+        $q = static function (string $v): string {
+            return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $v) . '"';
+        };
+        $cnf = "[client]\n"
+            . 'user=' . $q((string)($db['user'] ?? 'root')) . "\n"
+            . 'password=' . $q((string)($db['pass'] ?? '')) . "\n"
+            . 'host=' . $q((string)($db['host'] ?? '127.0.0.1')) . "\n"
+            . 'port=' . (int)($db['port'] ?? 3306) . "\n";
+        if (@file_put_contents($cnfFile, $cnf) === false) {
+            return false;
+        }
+        @chmod($cnfFile, 0600);
+        $cmd = 'mysqldump --defaults-extra-file=' . escapeshellarg($cnfFile)
+            . ' --single-transaction --quick --default-character-set=utf8mb4 '
+            . escapeshellarg((string)($db['name'] ?? 'psyisle'))
+            . ' > ' . escapeshellarg($dest) . ' 2>/dev/null';
+        @exec($cmd, $out, $code);
+        @unlink($cnfFile);
+        return is_file($dest) && filesize($dest) > 100;
+    }
+
+    /** 30 天滚动清理：只碰本模块产出的备份，不动 Updater 的 upgrade-backup-*.zip */
+    private function purgeOldBackups(): void
+    {
+        $pats = ['db-*.sql.gz.enc', 'full-*.zip.enc', 'db-*.sql.gz', 'full-*.zip', 'backup-*.sql.gz'];
+        foreach ($pats as $pat) {
+            foreach (glob(STORAGE . '/backups/' . $pat) ?: [] as $f) {
+                if (filemtime($f) < strtotime('-30 days')) @unlink($f);
+            }
+        }
+    }
+
+    /** 全量备份：数据库 + uploads 压缩为一个 zip，落盘前整体加密 */
     public function fullBackup(Request $req, array $p): void
     {
         Csrf::guard();
@@ -162,25 +206,21 @@ class Tool extends Base
             Session::flash('error', '服务器未安装 PHP zip 扩展');
             \app\Core\ResponseRedirect('/admin/tools');
         }
-        $db = CONFIG['db'];
-        $sqlFile = STORAGE . '/backups/full-db-' . date('Ymd-His') . '.sql';
-        $dumpCmd = sprintf(
-            'mysqldump --host=%s --port=%s --user=%s --password=%s %s 2>/dev/null > %s',
-            escapeshellarg($db['host'] ?? '127.0.0.1'),
-            escapeshellarg((string)($db['port'] ?? '3306')),
-            escapeshellarg($db['user'] ?? 'root'),
-            escapeshellarg($db['pass'] ?? ''),
-            escapeshellarg($db['name'] ?? 'psyisle'),
-            escapeshellarg($sqlFile)
-        );
-        @exec($dumpCmd, $out, $code);
-        if (!is_file($sqlFile) || filesize($sqlFile) < 100) {
-            Session::flash('error', '数据库导出失败（检查 mysqldump）');
+        $base = STORAGE . '/backups/full-' . date('Ymd-His');
+        $sqlFile = $base . '.sql';
+        if (!$this->dumpSql($sqlFile)) {
+            @unlink($sqlFile);
+            Session::flash('error', '数据库导出失败（检查 mysqldump 与凭据文件）');
             \app\Core\ResponseRedirect('/admin/tools');
         }
-        $zipFile = STORAGE . '/backups/full-' . date('Ymd-His') . '.zip';
+        $zipFile = $base . '.zip';
+        $encFile = $zipFile . '.enc';
         $zip = new \ZipArchive();
-        $zip->open($zipFile, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+        if ($zip->open($zipFile, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            @unlink($sqlFile);
+            Session::flash('error', '无法创建备份压缩包（目录权限？）');
+            \app\Core\ResponseRedirect('/admin/tools');
+        }
         $zip->addFile($sqlFile, 'database.sql');
         // uploads（排除 PHP 类文件以防万一）
         $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(UPLOAD_PATH, \FilesystemIterator::SKIP_DOTS));
@@ -190,12 +230,16 @@ class Tool extends Base
         }
         $zip->close();
         @unlink($sqlFile);
-        // 30 天清理
-        foreach (glob(STORAGE . '/backups/full-*.zip') ?: [] as $f) {
-            if (filemtime($f) < strtotime('-30 days')) @unlink($f);
+        if (!is_file($zipFile) || !BackupCrypto::encryptFile($zipFile, $encFile)) {
+            @unlink($zipFile);
+            @unlink($encFile);
+            Session::flash('error', '全量备份加密失败（检查 openssl 扩展）');
+            \app\Core\ResponseRedirect('/admin/tools');
         }
-        $this->audit('tool.full_backup', 'database', null, ['file' => basename($zipFile), 'size' => filesize($zipFile)]);
-        Session::flash('success', '全量备份完成：' . basename($zipFile) . '（' . round(filesize($zipFile) / 1024) . 'KB）');
+        @unlink($zipFile);
+        $this->purgeOldBackups();
+        $this->audit('tool.full_backup', 'database', null, ['file' => basename($encFile), 'size' => filesize($encFile)]);
+        Session::flash('success', '全量备份完成（已加密）：' . basename($encFile) . '（' . round(filesize($encFile) / 1024) . 'KB）');
         \app\Core\ResponseRedirect('/admin/tools');
     }
 

@@ -229,6 +229,8 @@ class Updater
             self::zipDir(ROOT . '/' . $dir, $dir, $b);
         }
         $b->close();
+        // P0-G4：回滚包内含 config/config.php（数据库凭据），必须 0600，不能留在 644 任人读
+        @chmod($backupFile, 0600);
 
         // 4) 解压覆盖（不删除既有文件）
         $applied = 0;

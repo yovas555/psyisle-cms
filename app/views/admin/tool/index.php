@@ -71,10 +71,10 @@
       <tr><th>文件</th><th>大小</th><th>时间</th></tr>
       <?php if (!$backups): ?><tr><td colspan="3" class="empty">暂无备份</td></tr><?php endif; ?>
       <?php foreach ($backups as $b): ?>
-      <tr><td><?= e($b['file']) ?></td><td><?= round($b['size'] / 1024) ?>KB</td><td class="muted"><?= e($b['mtime']) ?></td></tr>
+      <tr><td><?= e($b['file']) ?><?= !empty($b['encrypted']) ? ' <span class="chip ok-text">已加密</span>' : ' <span class="chip err-text">明文·待清理</span>' ?></td><td><?= round($b['size'] / 1024) ?>KB</td><td class="muted"><?= e($b['mtime']) ?></td></tr>
       <?php endforeach; ?>
     </table>
-    <p class="hint">备份文件位于 storage/backups/（Web 不可达，需经服务器文件管理获取）。</p>
+    <p class="hint">备份位于 storage/backups/（Web 不可达）。v2.21.0 起一律 AES-256 加密为 <code>.enc</code>，恢复前需先解密，步骤见 docs/OPS.md「备份与恢复」。</p>
   </div>
 
   <div class="panel">

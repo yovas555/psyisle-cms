@@ -50,6 +50,39 @@ class AiService
         return false;
     }
 
+    /**
+     * 出站脱敏（v2.21.0 · P0-G6）
+     * 会话语料发给第三方模型前，把"直接标识"替换为占位符：手机号 / 身份证 / 邮箱 / 卡号。
+     * 只替换直接标识，不改写语义——避免破坏对话质量；姓名与住址无法可靠识别，靠"不外发个案数据"这一层约束。
+     * @return array{0:string,1:int} [脱敏后文本, 替换处数]
+     */
+    public static function redact(string $text): array
+    {
+        if ($text === '') return ['', 0];
+        $n = 0;
+        $pats = [
+            '/(?<!\d)1[3-9]\d{9}(?!\d)/u'                        => '[手机号]',
+            '/\b\d{17}[\dXx]\b/u'                                 => '[身份证]',
+            '/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/' => '[邮箱]',
+            '/(?<!\d)(?:\d[ \-]?){16,19}(?!\d)/'                  => '[卡号]',
+        ];
+        foreach ($pats as $re => $rep) {
+            $out = preg_replace_callback($re, static function () use (&$n, $rep) {
+                $n++;
+                return $rep;
+            }, $text);
+            if (is_string($out)) $text = $out;
+        }
+        return [$text, $n];
+    }
+
+    /** 出站策略：none=一律不外发（只用知识库/兜底）；chat=仅客服会话可外发（默认） */
+    public static function outboundScope(): string
+    {
+        $v = (string)setting('ai.outbound_scope', 'chat');
+        return in_array($v, ['none', 'chat'], true) ? $v : 'chat';
+    }
+
     /** 主入口：为一条用户消息生成回复 */
     public static function respond(int $sessionId, string $userMsg): array
     {
@@ -68,8 +101,8 @@ class AiService
             return ['reply' => self::markdownLite($kbHit), 'type' => 'kb'];
         }
 
-        // 3) LLM
-        if (!self::enabled()) {
+        // 3) LLM（出站策略为 none 时退化为留言兜底，绝不外发）
+        if (!self::enabled() || self::outboundScope() === 'none') {
             $fallback = '您好！智能客服暂未开放，您可以通过「' . url('/message') . '」给我们留言，或拨打 '
                 . setting('contact.phone', '我们的电话') . '，我们会尽快回复您。';
             self::save($sessionId, 'assistant', $fallback, 'fallback', 0);
@@ -82,11 +115,20 @@ class AiService
             $history = Database::fetchAll(
                 'SELECT role, content FROM chat_messages WHERE session_id=? ORDER BY id ASC LIMIT 20', [$sessionId]
             );
+            $doRedact = (string)setting('ai.redact', '1') === '1';
+            $redacted = 0;
             foreach ($history as $h) {
                 if ($h['role'] === 'system') continue;
-                $messages[] = ['role' => $h['role'], 'content' => mb_substr($h['content'], 0, 2000)];
+                $c = mb_substr((string)$h['content'], 0, 2000);
+                if ($doRedact) { [$c, $k] = self::redact($c); $redacted += $k; }
+                $messages[] = ['role' => $h['role'], 'content' => $c];
             }
-            $messages[] = ['role' => 'user', 'content' => mb_substr($userMsg, 0, 2000)];
+            $um = mb_substr($userMsg, 0, 2000);
+            if ($doRedact) { [$um, $k] = self::redact($um); $redacted += $k; }
+            $messages[] = ['role' => 'user', 'content' => $um];
+            if ($redacted > 0) {
+                Logger::info('ai', 'outbound redacted', ['n' => $redacted, 'session' => $sessionId]);
+            }
 
             [$ok, $status, $body] = Http::post(
                 self::endpoint(),

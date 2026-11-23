@@ -259,6 +259,11 @@ class PluginManager
             exit;
         }
         $title = (string)($meta['admin_menu']['title'] ?? $meta['name']);
+        // P0-G3 防御性门禁：后台插件写操作实际走 Admin\Plugin@pluginAction（已统一 Csrf::guard），
+        // 此处仅兜底——将来若给插件页开放 POST 入口，不会因为插件自身忘写 guard 而失守。
+        if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'POST') {
+            Csrf::guard();
+        }
         $class = self::load($slug);
         ob_start();
         try {
