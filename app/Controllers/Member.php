@@ -4,8 +4,10 @@ declare(strict_types=1);
 namespace app\Controllers;
 
 use app\Core\Csrf;
+use app\Core\Database;
 use app\Core\RateLimiter;
 use app\Core\Request;
+use app\Core\Session;
 use app\Services\MemberService;
 use app\Services\StatsService;
 
@@ -23,22 +25,77 @@ class Member
     {
         StatsService::track();
         if (MemberService::current()) { \app\Core\ResponseRedirect('/member'); }
+        if (Session::get('admin_user')) { \app\Core\ResponseRedirect('/admin'); }
         $error = '';
-        $mode = (string)$req->get('mode', '');
         if ($req->isPost()) {
             Csrf::guard();
-            $mode = (string)$req->post('mode', 'code');
-            if ($mode === 'sms') {
-                [$ok, $msg] = MemberService::loginBySms((string)$req->post('phone', ''), (string)$req->post('code', ''));
-            } elseif ($mode === 'password') {
-                [$ok, $msg] = MemberService::loginByPassword((string)$req->post('phone', ''), (string)$req->post('password', ''));
+            $account = trim((string)$req->post('account', ''));
+            $password = (string)$req->post('password', '');
+            if ($account === '' || $password === '') {
+                $error = '请输入账号和密码';
             } else {
-                [$ok, $msg] = MemberService::loginByCode((string)$req->post('phone', ''), (string)$req->post('booking_code', ''));
+                // ① 会员（手机号 + 密码）
+                [$ok, $msg] = MemberService::loginByPassword($account, $password);
+                if ($ok) { \app\Core\ResponseRedirect('/member'); }
+                // ② 咨询师（后台账号名 + 密码，绑定咨询师档案 → 直进工作台）
+                [$cslOk, $cslMsg] = $this->loginCounselor($account, $password, $req);
+                if ($cslOk) { \app\Core\ResponseRedirect('/admin/counselor-home'); }
+                $error = $cslMsg !== '' ? $cslMsg : $msg;
             }
-            if ($ok) { \app\Core\ResponseRedirect('/member'); }
-            $error = $msg;
         }
-        $this->view('member/login', ['title' => '会员中心 · 登录', 'error' => $error, 'smsReady' => MemberService::smsReady(), 'mode' => $mode]);
+        $this->view('member/login', ['title' => '会员中心 · 登录', 'error' => $error]);
+    }
+
+    /**
+     * 咨询师前台登录（统一入口分流）：
+     * 只放行「绑定咨询师档案的账号」（counselors.user_id），普通管理员仍走后台 /admin 登录。
+     * 命中即建立 admin 会话 + 设置后台闸口 cookie，跳咨询师工作台。
+     * @return [ok, msg]（msg 为空 = 非咨询师账号，静默，由上层用会员侧错误提示）
+     */
+    private function loginCounselor(string $account, string $password, Request $req): array
+    {
+        $u = Database::fetch('SELECT * FROM users WHERE username=? AND status=1', [$account]);
+        if (!$u) return [false, ''];
+        if (!empty($u['locked_until']) && strtotime((string)$u['locked_until']) > time()) {
+            return [false, '账号已临时锁定，请 15 分钟后再试'];
+        }
+        if (!password_verify($password, (string)$u['password_hash'])) {
+            // 后台账号密码错：走后台登录失败计数逻辑（复用限流语义）
+            $failed = (int)$u['failed_count'] + 1;
+            $upd = ['failed_count' => $failed];
+            if ($failed >= 5) { $upd['locked_until'] = date('Y-m-d H:i:s', time() + 900); }
+            Database::update('users', $upd, 'id=?', [$u['id']]);
+            return [false, '账号或密码不正确'];
+        }
+        if (!empty($u['totp_secret'])) {
+            return [false, '该账号已开启两步验证，请从后台登录入口登录'];
+        }
+        // 仅放行绑定咨询师档案的账号（普通管理员不得经前台登录）
+        $csl = Database::fetch('SELECT id FROM counselors WHERE user_id=? AND status=1', [(int)$u['id']]);
+        if (!$csl) {
+            return [false, '该账号为后台管理账号，请从后台登录入口登录'];
+        }
+        $ip = $req->ip();
+        Database::update('users', [
+            'failed_count' => 0, 'locked_until' => null,
+            'last_login_at' => date('Y-m-d H:i:s'), 'last_login_ip' => $ip,
+        ], 'id=?', [$u['id']]);
+        Session::set('admin_user', [
+            'id' => $u['id'], 'username' => $u['username'],
+            'display_name' => $u['display_name'] ?: $u['username'], 'role_id' => $u['role_id'],
+        ]);
+        Session::set('admin_last_active', time());
+        Session::set('admin_ua', hash('sha256', (string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
+        // 后台闸口 cookie（与后台入口同款），否则跳 /admin/counselor-home 会被闸口拦成 404
+        $gate = trim((string)setting('security.admin_gate', ''));
+        if ($gate !== '') {
+            setcookie('psy_admin_gate', hash('sha256', $gate), [
+                'expires' => time() + 30 * 86400, 'path' => '/', 'samesite' => 'Lax',
+                'httponly' => true, 'secure' => $req->isSecure(),
+            ]);
+        }
+        session_regenerate_id(true);
+        return [true, ''];
     }
 
     /** 注册（v2.9.0）：手机号+密码，零外部依赖 */
@@ -91,7 +148,7 @@ class Member
         ]);
     }
 
-    /** 发送登录验证码（POST，限流在服务层） */
+    /** 发送手机验证码（POST，限流在服务层）—— 仅用于微信绑定/密码找回，不再用于登录 */
     public function sendCode(Request $req, array $p): void
     {
         Csrf::guard();

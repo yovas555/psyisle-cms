@@ -14,9 +14,15 @@
         <legend><span class="q-no"><?= $i + 1 ?></span><?= e($item['q']) ?></legend>
         <div class="assess-options">
           <?php foreach ($item['options'] as $oi => $opt): ?>
+          <?php
+            // 兼容两种选项结构：内置量表 [文字,分值] / 专业量表 {label,score} / 纯文本
+            $optText = is_array($opt)
+              ? (isset($opt['label']) ? (string)$opt['label'] : (string)($opt[0] ?? ''))
+              : (string)$opt;
+          ?>
           <label class="assess-opt">
-            <input type="radio" name="q<?= $i ?>" value="<?= (int)$opt[1] ?>" required>
-            <span><?= e($opt[0]) ?></span>
+            <input type="radio" name="q<?= $i ?>" value="<?= (int)$oi ?>" required>
+            <span><?= e($optText) ?></span>
           </label>
           <?php endforeach; ?>
         </div>

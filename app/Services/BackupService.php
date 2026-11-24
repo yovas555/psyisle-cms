@@ -19,7 +19,7 @@ use app\Core\Logger;
  *  * 落盘前一律加密（BackupCrypto），文件名 *.enc，权限 0600；
  *  * 压缩只做一层：dump 出纯 SQL → gzip → 加密；
  *  * 不依赖外部命令：exec 可用走 mysqldump，否则走 PhpDbDumper；
- *  * 30 天滚动清理，只清本模块产物，不动 Updater 的 upgrade-backup-*.zip。
+ *  * 7 天滚动清理（v2.23.1 起），只清本模块产物，不动 Updater 的 upgrade-backup-*.zip。
  */
 class BackupService
 {
@@ -101,14 +101,14 @@ class BackupService
         return ['ok' => true, 'msg' => '全量备份完成（已加密）：' . basename($encFile), 'file' => $encFile, 'bytes' => $bytes];
     }
 
-    /** 30 天滚动清理：只碰本模块产出的备份，不动 Updater 的 upgrade-backup-*.zip */
+    /** 7 天滚动清理：只碰本模块产出的备份，不动 Updater 的 upgrade-backup-*.zip */
     public static function purgeOld(): int
     {
         $pats = ['db-*.sql.gz.enc', 'full-*.zip.enc', 'db-*.sql.gz', 'full-*.zip', 'backup-*.sql.gz'];
         $n = 0;
         foreach ($pats as $pat) {
             foreach (glob(STORAGE . '/backups/' . $pat) ?: [] as $f) {
-                if (filemtime($f) < strtotime('-30 days')) { @unlink($f); $n++; }
+                if (filemtime($f) < strtotime('-7 days')) { @unlink($f); $n++; }
             }
         }
         return $n;

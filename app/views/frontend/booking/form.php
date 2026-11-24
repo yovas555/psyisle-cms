@@ -99,6 +99,6 @@
       <button class="btn btn-primary btn-lg btn-block" type="submit">提交预约</button>
     </form>
 
-    <p class="muted center">已提交过预约？<a href="<?= url('/booking/check') ?>">查询预约进度 →</a></p>
+    <p class="muted center">已提交过预约？<a href="<?= url('/member/bookings') ?>">登录会员中心查看进度 →</a></p>
   </div>
 </section>

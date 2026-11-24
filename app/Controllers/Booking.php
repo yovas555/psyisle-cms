@@ -21,9 +21,9 @@ class Booking
     public function create(Request $req, array $p): void
     {
         StatsService::track();
-        // v2.14.0 提案：预约可选要求登录会员（booking.require_member 默认 0 关闭，等用户拍板）
+        // v2.24.0：预约强制登录会员（booking.require_member 默认 1，后台可关）
         $mCur = \app\Services\MemberService::current();
-        if (!$mCur && (bool)setting('booking.require_member', '0')) {
+        if (!$mCur && (bool)setting('booking.require_member', '1')) {
             \app\Core\Session::set('member_return', '/booking');
             \app\Core\Session::flash('error', '预约请先登录会员账号（预约与提醒、支付均在会员中心管理）');
             \app\Core\ResponseRedirect('/member/login');
@@ -74,7 +74,7 @@ class Booking
         $slotLabel = (string)$msgOrLabel;
         $services = Database::fetchAll('SELECT id, name, price_from, price_to FROM services WHERE status=1 ORDER BY sort');
         $mCur = \app\Services\MemberService::current();
-        if (!$mCur && (bool)setting('booking.require_member', '0')) {
+        if (!$mCur && (bool)setting('booking.require_member', '1')) {
             \app\Core\Session::set('member_return', '/booking/confirm?counselor=' . $cid . '&date=' . urlencode($date) . '&start=' . urlencode($start));
             \app\Core\Session::flash('error', '预约请先登录会员账号（预约与提醒、支付均在会员中心管理）');
             \app\Core\ResponseRedirect('/member/login');
@@ -240,11 +240,11 @@ class Booking
             $confirmHtml = '<div style="font-family:-apple-system,\'PingFang SC\',sans-serif;max-width:560px;margin:0 auto">'
                 . '<h2 style="color:#2a9d8f">' . $mailTitle . '</h2>'
                 . '<p>' . e((string)$data['name']) . '，您好！' . e($mailHead) . '</p>'
-                . '<p style="background:#f0fdf4;padding:12px 16px;border-radius:8px">预约查询码：<strong>' . e($code) . '</strong>（凭此码+手机号可随时 <a href="' . url('/booking/check') . '">查询进度</a>）</p>'
+                . '<p style="background:#f0fdf4;padding:12px 16px;border-radius:8px">本预约已关联你的会员账号，可登录 <a href="' . url('/member/bookings') . '">会员中心 → 我的预约</a> 查看进度与改期。</p>'
                 . '<p style="color:#64748b;font-size:13px">如需改期或取消，请回复本邮件或拨打 ' . e(setting('contact.phone', '我们的电话')) . '。<br>—— ' . e($siteName) . '</p></div>';
             try {
                 Database::insert('email_queue', [
-                    'to_email' => $email, 'subject' => '【' . $siteName . '】' . $mailTitle . '（查询码 ' . $code . '）',
+                    'to_email' => $email, 'subject' => '【' . $siteName . '】' . $mailTitle,
                     'body_html' => $confirmHtml, 'priority' => 3, 'status' => 'queued',
                     'scheduled_at' => date('Y-m-d H:i:s'), 'created_at' => date('Y-m-d H:i:s'),
                 ]);
@@ -343,36 +343,7 @@ class Booking
     /** 凭码查询进度 */
     public function check(Request $req, array $p): void
     {
-        StatsService::track();
-        $result = null;
-        if ($req->isPost()) {
-            Csrf::guard();
-            if (!RateLimiter::hit('booking_check', $req->ip(), 10, 600)) {
-                $result = ['error' => '查询过于频繁，请稍后再试'];
-            } else {
-                $code = strtoupper((string)$req->post('code', ''));
-                $phone = (string)$req->post('phone', '');
-                $b = Database::fetch('SELECT * FROM bookings WHERE code=? AND phone=?', [$code, $phone]);
-                if (!$b) {
-                    $result = ['error' => '未找到对应预约，请核对查询码与手机号'];
-                } else {
-                    $statusMap = ['pending' => '待确认', 'confirmed' => '已确认', 'rescheduled' => '已改期', 'completed' => '已完成', 'cancelled' => '已取消'];
-                    $result = ['booking' => [
-                        'code' => $b['code'],
-                        'name' => $b['name'],
-                        'status' => $statusMap[$b['status']] ?? $b['status'],
-                        'prefer_date' => $b['prefer_date'],
-                        'prefer_slot' => $b['prefer_slot'],
-                        'note' => $b['admin_note'],
-                        'created_at' => $b['created_at'],
-                    ]];
-                }
-            }
-        }
-        $meta = SeoService::meta('预约进度查询', '', '', url('/booking/check'));
-        View::render('booking/check', [
-            'meta' => $meta, 'result' => $result,
-            'crumbs' => ['首页' => url('/'), '预约进度查询' => ''],
-        ]);
+        // v2.24.0：预约查询码查询已废除，进度统一走「会员中心 → 我的预约」
+        \app\Core\ResponseRedirect('/member/login');
     }
 }

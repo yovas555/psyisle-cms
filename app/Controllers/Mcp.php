@@ -118,7 +118,7 @@ class Mcp
                         'how' => '在线表单 ' . url('/booking') . '；或从咨询师页面的可约时段直接选择（无需等待机构确认）',
                         'lead_hours' => (int)setting('sched.lead_hours', '2'),
                         'cancel_policy' => '距咨询开始 24 小时以上可在会员自助中心取消/改期',
-                        'require_member' => (bool)setting('booking.require_member', '0'),
+                        'require_member' => (bool)setting('booking.require_member', '1'),
                         'note' => '提交预约申请后以机构最终确认信息为准；危机情况请直接拨打 12356',
                     ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
                 case 'list_slots':
@@ -179,7 +179,7 @@ class Mcp
                     return self::tool(json_encode([
                         'ok' => true, 'booking_code' => $code,
                         'status' => 'pending（等待机构确认）',
-                        'note' => '预约申请已提交，以机构最终确认信息为准。查询进度: ' . url('/booking/check'),
+                        'note' => '预约申请已提交，以机构最终确认信息为准。查询进度：登录会员中心「我的预约」',
                         'phone_masked' => mask_phone($phone),
                     ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
                 default:

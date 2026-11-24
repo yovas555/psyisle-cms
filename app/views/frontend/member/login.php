@@ -29,18 +29,18 @@ $inWx = stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'MicroMessenger') !== false;
       <div class="wx-login-divider"><span>或使用密码登录</span></div>
     </div>
 
-    <?php /* ===== 密码登录（折叠） ===== */ ?>
+    <?php /* ===== 账号密码登录 ===== */ ?>
     <form method="post" class="member-form" id="tab-password" action="<?= url('/member/login') ?>">
       <?= csrf_field() ?>
-      <input type="hidden" name="mode" value="password">
-      <label class="field"><span class="label">手机号</span>
-        <input type="tel" name="phone" required maxlength="11" placeholder="注册手机号">
+      <label class="field"><span class="label">账号</span>
+        <input type="text" name="account" required placeholder="注册手机号 / 咨询师账号名" autocomplete="username">
       </label>
       <label class="field"><span class="label">密码</span>
-        <input type="password" name="password" required placeholder="会员密码">
+        <input type="password" name="password" required placeholder="登录密码" autocomplete="current-password">
       </label>
-      <button class="btn btn-primary btn-block" type="submit">密码登录</button>
+      <button class="btn btn-primary btn-block" type="submit">登录</button>
       <p class="hint"><a href="<?= url('/member/forgot-password') ?>">忘记密码？</a> · 没有账号？<a href="<?= url('/member/register') ?>">直接注册会员</a></p>
+      <p class="muted" style="margin-top:6px;font-size:12px">会员与咨询师共用此入口：会员用注册手机号、咨询师用工作台账号名登录，系统自动跳转对应界面。</p>
     </form>
   </div>
 </div>

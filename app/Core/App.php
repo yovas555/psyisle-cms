@@ -56,7 +56,6 @@ class App
         $r->post('/booking', 'Booking@store');
         $r->get('/booking/confirm', 'Booking@confirm');
         $r->get('/booking/success', 'Booking@success');
-        $r->get('/booking/check', 'Booking@check');
         $r->get('/booking/slots', 'Booking@slots');
         $r->get('/n/{token:[a-f0-9]{8,16}}', 'NotifyClick@go');
         // v2.18：公开只读 API（api.public_enabled 开关）与 MCP Server（mcp_enabled 开关，默认关）
@@ -72,7 +71,6 @@ class App
         $r->get('/assessment/{slug:\w[\w\-]*}', 'Assessment@show');
         $r->post('/assessment/{slug:\w[\w\-]*}', 'Assessment@submit');
         $r->get('/report/{token:[a-f0-9]+}', 'Assessment@report');
-        $r->post('/booking/check', 'Booking@check');
         $r->get('/message', 'Message@create');
         $r->post('/message', 'Message@store');
         $r->get('/message/reply', 'Message@replyView');
@@ -89,7 +87,7 @@ class App
         // ===== 会员自助中心（独立会话域 member_user）=====
         $r->get('/member/login', 'Member@login');
         $r->post('/member/login', 'Member@login');
-        $r->post('/member/login/send-code', 'Member@sendCode');
+        $r->post('/member/login/send-code', 'Member@sendCode'); // 手机验证码（微信绑定/密码找回用，非登录）
         $r->get('/member/register', 'Member@register');
         $r->post('/member/register', 'Member@register');
         $r->get('/member/settings', 'Member@settings');
