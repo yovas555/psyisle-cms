@@ -94,7 +94,26 @@ class Cron
         self::sessionReminders(); // v2.14.0：咨询提醒引擎（3h 短信 / 10min RTC 微信 / 1h 未确认短信）
         // v2.17.0：短信兜底 sweep（推送 30 分钟未查阅 → 补发短信；notify_escalations 台账防重）
         $smsFallback = \app\Services\MemberNotifyService::sweepEscalations();
-        echo json_encode(['ok' => true, 'jobs' => $done, 'reminders' => true, 'sms_fallback' => $smsFallback], JSON_UNESCAPED_UNICODE);
+        // v2.23.0：随访计划生成器（每日一次，settings 记 last_run 防重）
+        $planGen = self::followupPlanGenerate();
+        echo json_encode(['ok' => true, 'jobs' => $done, 'reminders' => true, 'sms_fallback' => $smsFallback, 'plan_gen' => $planGen], JSON_UNESCAPED_UNICODE);
+    }
+
+    /** v2.23.0：随访计划每日生成（P2-A）。幂等：同日只跑一次，生成器内部按 next_due_at 递推 + 次数封顶。 */
+    private static function followupPlanGenerate(): array
+    {
+        $today = date('Y-m-d');
+        if ((string)setting('followup_plan.last_run', '') === $today) {
+            return ['ok' => true, 'generated' => 0, 'completed' => 0, 'skipped' => true];
+        }
+        try {
+            $r = \app\Services\FollowupPlanService::generateDue();
+            setting_save('followup_plan.last_run', $today, 'cron');
+            return ['ok' => true, 'generated' => (int)$r['generated'], 'completed' => (int)$r['completed'], 'skipped' => false];
+        } catch (\Throwable $t) {
+            \app\Core\Logger::error('followup-plan', 'cron: ' . $t->getMessage());
+            return ['ok' => false, 'msg' => $t->getMessage()];
+        }
     }
 
     /**

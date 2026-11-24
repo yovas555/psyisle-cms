@@ -2,7 +2,7 @@
 <div class="page-guide" data-guide-key="tools">
   <button type="button" class="guide-close" title="7 天内不再显示">✕</button>
   <b>运维工具说明</b>
-  <ol><li>数据库备份建议每周一次（保留 30 天）；升级前系统自动额外备份</li><li>站长平台验证文件上传后即通过验证</li><li>发布文章会自动推送百度/IndexNow；也可手动点「推送最新 URL」</li><li>计划任务已配好（邮件/统计/升级检查/预约提醒）</li></ol>
+  <ol><li>数据库备份建议每周一次（保留 30 天）；升级前系统自动额外备份；v2.22.2 起支持每日自动备份</li><li>站长平台验证文件上传后即通过验证</li><li>发布文章会自动推送百度/IndexNow；也可手动点「推送最新 URL」</li><li>计划任务已配好（邮件/统计/升级检查/预约提醒/自动备份）</li></ol>
 </div>
 <div class="dash-grid">
   <div class="panel">
@@ -104,14 +104,16 @@
     </form>
 
     <h2>计划任务（已配置 ✓）</h2>
-    <p class="hint">服务器 crontab 已配置 4 条任务并实测可用，无需手动操作：</p>
+    <p class="hint">服务器 crontab 已配置基础 4 条任务并实测可用，无需手动操作；v2.22.2 起新增自动备份（本站已配）：</p>
     <div class="code-box small">
       <code>每分钟　邮件队列发送</code><br>
       <code>每日 3:10　访问统计聚合</code><br>
       <code>每日 4:15　升级检查（新版本邮件提醒）</code><br>
-      <code>每日 18:00　次日预约提醒</code>
+      <code>每日 18:00　次日预约提醒</code><br>
+      <code>每日 4:30　数据库备份（v2.22.2 起；周日 4:50 全量）</code>
     </div>
-    <p class="hint">迁移服务器时在 crontab 添加（secret 见 config/config.php）：<br>
-      <code><?= e($cronUrl) ?>/admin/cron/{mail,stats,upgrade-check,booking-reminder}?secret=…</code></p>
+    <p class="hint">迁移服务器时在 crontab 添加（secret 见 config/config.php，?secret= 或请求头 X-Cron-Secret 均可）：<br>
+      <code><?= e($cronUrl) ?>/admin/cron/{mail,stats,upgrade-check,booking-reminder,backup}?secret=…</code><br>
+      备份带参数：<code>?kind=db</code>（默认，仅数据库）或 <code>?kind=full</code>（连 uploads，建议每周一次）</p>
   </div>
 </div>

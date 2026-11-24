@@ -12,6 +12,7 @@ use app\Services\CaseCareService;
 use app\Services\CasePolicy;
 use app\Services\CaseRecordService;
 use app\Services\CaseService;
+use app\Services\FollowupPlanService;
 
 /**
  * 个案管理（P1-A）
@@ -381,6 +382,8 @@ class Casebook extends CounselorHome
             'crises' => CaseCareService::crisesOf($caseId, $cid),
             'homeworks' => CaseCareService::homeworksOf($caseId, $cid),
             'followups' => CaseCareService::followupsOf($caseId, $cid),
+            'plans' => FollowupPlanService::plansOf($caseId, $cid),
+            'planStatus' => FollowupPlanService::STATUS,
             'sessions' => CaseService::sessionsOf($caseId),
             'levels' => CaseCareService::CRISIS_LEVEL,
             'hwStatus' => CaseCareService::HW_STATUS,
@@ -496,6 +499,43 @@ class Casebook extends CounselorHome
         if (empty($r['ok'])) Session::flash('error', (string)$r['msg']);
         else {
             $this->audit('case.followup_finish', 'case_followups', $fid, ['case_id' => $caseId, 'skip' => (string)$req->post('act', '') === 'skip']);
+            Session::flash('success', (string)$r['msg']);
+        }
+        \app\Core\ResponseRedirect('/admin/counselor-home/cases/' . $caseId . '/care');
+    }
+
+    // ==================== 随访计划（P2-A） ====================
+
+    public function planAdd(Request $req, array $p): void
+    {
+        Csrf::guard();
+        $me = $this->me();
+        $caseId = (int)($p['id'] ?? 0);
+        $r = FollowupPlanService::create($caseId, (int)$me['id'], [
+            'title' => $req->post('title', ''),
+            'interval_days' => $req->post('interval_days', 7),
+            'times' => $req->post('times', 3),
+            'channel' => $req->post('channel', 'phone'),
+            'purpose' => $req->post('purpose', ''),
+        ]);
+        if (empty($r['ok'])) Session::flash('error', (string)$r['msg']);
+        else {
+            $this->audit('case.plan_add', 'followup_plans', (int)$r['id'], ['case_id' => $caseId]);
+            Session::flash('success', (string)$r['msg']);
+        }
+        \app\Core\ResponseRedirect('/admin/counselor-home/cases/' . $caseId . '/care');
+    }
+
+    public function planStop(Request $req, array $p): void
+    {
+        Csrf::guard();
+        $me = $this->me();
+        $caseId = (int)($p['id'] ?? 0);
+        $pid = (int)($p['pid'] ?? 0);
+        $r = FollowupPlanService::stop($pid, (int)$me['id']);
+        if (empty($r['ok'])) Session::flash('error', (string)$r['msg']);
+        else {
+            $this->audit('case.plan_stop', 'followup_plans', $pid, ['case_id' => $caseId]);
             Session::flash('success', (string)$r['msg']);
         }
         \app\Core\ResponseRedirect('/admin/counselor-home/cases/' . $caseId . '/care');

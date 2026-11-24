@@ -18,6 +18,7 @@ $levelCls = ['urgent' => 'err-text', 'high' => 'err-text'];
       <span class="chip<?= $openCrises > 0 ? ' err-text' : '' ?>">未闭环危机 <b><?= $openCrises ?></b></span>
       <span class="chip<?= $overdueHw > 0 ? ' err-text' : '' ?>">逾期作业 <b><?= $overdueHw ?></b></span>
       <span class="chip<?= $pendingFu > 0 ? ' err-text' : '' ?>">到期随访 <b><?= $pendingFu ?></b></span>
+      <span class="chip">随访计划 <b><?= $activePlans ?></b></span>
       <a class="btn btn-sm btn-ghost" href="/admin/counselor-home/cases/<?= (int)$case['id'] ?>">← 返回个案</a>
       <a class="btn btn-sm btn-ghost" href="/admin/counselor-home/cases/<?= (int)$case['id'] ?>/records">咨询记录</a>
     </div>
@@ -152,9 +153,73 @@ $levelCls = ['urgent' => 'err-text', 'high' => 'err-text'];
   <?php endif; ?>
 </div>
 
-<!-- ==================== 随访 ==================== -->
+<!-- ==================== 随访计划（P2-A） ==================== -->
 <div class="panel" style="margin-top:14px">
-  <h2>随访计划（<?= count($followups) ?>）</h2>
+  <h2>随访计划（<?= count($plans) ?>）</h2>
+  <?php if ($plans): ?>
+  <table class="table">
+    <tr><th>计划名</th><th>间隔</th><th>次数</th><th>方式</th><th>已生成</th><th>下次</th><th>状态</th><th style="width:120px">操作</th></tr>
+    <?php foreach ($plans as $p): ?>
+    <?php $ps = (string)$p['status']; ?>
+    <tr>
+      <td><b><?= e((string)$p['title']) ?></b>
+        <?php if (!empty($p['purpose'])): ?><div class="muted" style="font-size:12px"><?= e((string)$p['purpose']) ?></div><?php endif; ?>
+      </td>
+      <td><?= (int)$p['interval_days'] ?> 天</td>
+      <td><?= (int)$p['generated_count'] ?> / <?= (int)$p['times'] ?></td>
+      <td><?= e($fuChannel[(string)$p['channel']] ?? (string)$p['channel']) ?></td>
+      <td><?= (int)$p['generated_count'] ?></td>
+      <td><?= $ps === 'active' ? e((string)($p['next_due_at'] ?? '—')) : '—' ?></td>
+      <td><?= e($planStatus[$ps] ?? $ps) ?></td>
+      <td>
+        <?php if ($ps === 'active'): ?>
+        <form method="post" action="/admin/counselor-home/cases/<?= (int)$case['id'] ?>/followup-plan/<?= (int)$p['id'] ?>/stop" onsubmit="return confirm('停止后不再生成新的随访待办，已生成的保留。确认？')">
+          <?= csrf_field() ?>
+          <button class="btn btn-sm btn-ghost" type="submit">停止</button>
+        </form>
+        <?php else: ?>
+        <span class="muted">—</span>
+        <?php endif; ?>
+      </td>
+    </tr>
+    <?php endforeach; ?>
+  </table>
+  <?php else: ?>
+  <p class="muted">暂无随访计划。可建一个「周期性随访」，到期会自动生成随访待办。</p>
+  <?php endif; ?>
+
+  <h3 style="margin-top:16px">新建随访计划</h3>
+  <form class="form" method="post" action="/admin/counselor-home/cases/<?= (int)$case['id'] ?>/followup-plan">
+    <?= csrf_field() ?>
+    <div class="form-grid">
+      <label class="field field-full"><span class="label">计划名</span>
+        <input type="text" name="title" maxlength="120" placeholder="如：结案后随访">
+      </label>
+      <label class="field"><span class="label">间隔天数</span>
+        <input type="number" name="interval_days" min="1" max="365" value="7">
+      </label>
+      <label class="field"><span class="label">随访次数</span>
+        <input type="number" name="times" min="1" max="52" value="3">
+      </label>
+      <label class="field"><span class="label">方式</span>
+        <select name="channel">
+          <?php foreach ($fuChannel as $k => $v): ?>
+          <option value="<?= e($k) ?>"<?= $k === 'phone' ? ' selected' : '' ?>><?= e($v) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </label>
+      <label class="field field-full"><span class="label">目的</span>
+        <input type="text" name="purpose" maxlength="200" placeholder="如：评估情绪与睡眠、了解社会功能恢复">
+      </label>
+    </div>
+    <div class="form-actions"><button class="btn btn-primary" type="submit">建立计划</button></div>
+    <p class="hint">首次随访在「间隔天数」后生成，之后每满一个间隔生成一次，直到达到次数自动完成。</p>
+  </form>
+</div>
+
+<!-- ==================== 随访待办（P1-D） ==================== -->
+<div class="panel" style="margin-top:14px">
+  <h2>随访待办（<?= count($followups) ?>）</h2>
   <?php if ($followups): ?>
   <table class="table">
     <tr><th>计划日期</th><th>方式</th><th>目的</th><th>状态</th><th style="width:280px">处理</th></tr>

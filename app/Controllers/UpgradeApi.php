@@ -114,6 +114,11 @@ class UpgradeApi
                 if ($cand['slug'] === $slug) { $pkg = $cand; break; }
             }
             if (!$pkg) $this->jsonFail('插件包不存在或未发布', 404);
+            // v2.23.0 插件安装令：下载插件前校验该站点(域名)是否购买了该插件（授权位在 cms 官网）
+            if (!DistributeService::entitledToPlugin($domain, $slug)) {
+                DistributeService::log('deny', $license, $domain, (string)($_SERVER['REMOTE_ADDR'] ?? ''), '未购买插件 ' . $slug);
+                $this->jsonFail('未购买该插件或授权已过期', 403);
+            }
         } else {
             $this->jsonFail('kind 非法', 400);
         }

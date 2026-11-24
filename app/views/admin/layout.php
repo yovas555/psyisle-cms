@@ -73,6 +73,7 @@ $navDef = [
     ]],
     'ops' => ['label' => '运营', 'items' => [
         ['label' => '运营总览', 'path' => '/admin/area/ops'],
+        ['label' => '经营驾驶舱', 'path' => '/admin/report'],
         ['section' => '渠道与自动化'],
         ['label' => 'AI 客服', 'path' => '/admin/plugin/ai-concierge'],
         ['label' => '邮件通知', 'path' => '/admin/plugin/mail-notify'],

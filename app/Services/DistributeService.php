@@ -5,6 +5,7 @@ namespace app\Services;
 
 use app\Core\Cache;
 use app\Core\Database;
+use app\Core\Http;
 use app\Core\Logger;
 use app\Core\RateLimiter;
 
@@ -146,6 +147,29 @@ class DistributeService
     public static function activePlugins(): array
     {
         return Database::fetchAll("SELECT * FROM upgrade_packages WHERE kind='plugin' AND status='active' ORDER BY slug");
+    }
+
+    /**
+     * 插件授权位校验（v2.23.0 插件安装令）：
+     * 客户站下载插件前，回调 cms 官网内部接口，确认「该域名确实购买了该插件」。
+     * 授权位权威在 cms 站 SQLite（plugin_entitlements），此处实时查询，无一致性问题。
+     * 默认 fail-closed：未配置校验地址/密钥、或请求失败，一律视为未授权。
+     */
+    public static function entitledToPlugin(string $domain, string $slug): bool
+    {
+        $url = rtrim((string)(CONFIG['entitlement_check_url'] ?? ''), '/');
+        $secret = (string)(CONFIG['internal_secret'] ?? '');
+        if ($url === '' || $secret === '' || $domain === '' || $slug === '') {
+            return false;
+        }
+        $q = $url . '?domain=' . rawurlencode($domain) . '&slug=' . rawurlencode($slug);
+        [$ok, $status, $body] = Http::get($q, ['X-Internal-Key: ' . $secret], 10);
+        if (!$ok || $status >= 400) {
+            self::log('deny', '', $domain, (string)($_SERVER['REMOTE_ADDR'] ?? ''), '授权位校验请求失败 status=' . $status);
+            return false;
+        }
+        $r = json_decode((string)$body, true);
+        return is_array($r) && !empty($r['entitled']);
     }
 
     /** 校验 check 应答（客户站用）：有可用更新则返回包信息，否则 null */

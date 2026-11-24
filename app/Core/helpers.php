@@ -43,7 +43,7 @@ if (!function_exists('setting')) {
 if (!function_exists('setting_save')) {
     function setting_save(string $key, $value, string $group = 'general'): void {
         \app\Core\Model::saveSetting($key, $value, $group);
-        Cache::forget('settings_all');
+        \app\Core\Cache::forget('settings_all');
     }
 }
 

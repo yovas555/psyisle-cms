@@ -996,3 +996,23 @@ CREATE TABLE IF NOT EXISTS `case_followups` (
   KEY `k_case` (`case_id`,`status`),
   KEY `k_counselor_due` (`counselor_id`,`status`,`due_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='个案随访计划（P1-D）';
+
+-- 随访计划（P2-A）
+CREATE TABLE IF NOT EXISTS `followup_plans` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `case_id` int unsigned NOT NULL,
+  `counselor_id` int unsigned NOT NULL,
+  `title` varchar(120) NOT NULL DEFAULT '结案后随访',
+  `interval_days` int unsigned NOT NULL DEFAULT 7 COMMENT '随访间隔天数（首访偏移同此）',
+  `times` int unsigned NOT NULL DEFAULT 3 COMMENT '计划随访次数',
+  `channel` varchar(12) NOT NULL DEFAULT 'phone' COMMENT 'phone/wechat/sms/visit',
+  `purpose` varchar(200) NULL COMMENT '随访目的',
+  `status` varchar(12) NOT NULL DEFAULT 'active' COMMENT 'active 进行中 / done 已完成 / stopped 已停止',
+  `next_due_at` date NULL COMMENT '下次生成日期（生成器据此推进）',
+  `generated_count` int unsigned NOT NULL DEFAULT 0 COMMENT '已生成随访数（上限 times）',
+  `created_at` datetime NULL,
+  `updated_at` datetime NULL,
+  PRIMARY KEY (`id`),
+  KEY `k_case` (`case_id`,`status`),
+  KEY `k_counselor` (`counselor_id`,`status`,`next_due_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='随访计划（P2-A）';

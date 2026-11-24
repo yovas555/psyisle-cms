@@ -164,6 +164,9 @@ class App
         $r->post('/admin/pages/restore/{id:\d+}', 'Admin\Page@restore');
         $r->post('/admin/pages/purge/{id:\d+}', 'Admin\Page@purge');
         $r->get('/admin/help', 'Admin\Help@index');
+        // 经营驾驶舱（v2.23.0 / P2-B：纯读看板 + CSV）
+        $r->get('/admin/report', 'Admin\Report@index');
+        $r->post('/admin/report/export', 'Admin\Report@export');
         $r->get('/admin/plugins', 'Admin\Plugin@index');
         $r->post('/admin/plugins/toggle/{slug:[a-z0-9\-]+}', 'Admin\Plugin@toggle');
         $r->post('/admin/plugins/uninstall/{slug:[a-z0-9\-]+}', 'Admin\Plugin@uninstall');
@@ -208,6 +211,9 @@ class App
         $r->post('/admin/counselor-home/cases/{id:\d+}/homework/{hid:\d+}/done', 'Admin\Casebook@homeworkDone');
         $r->post('/admin/counselor-home/cases/{id:\d+}/followup', 'Admin\Casebook@followupAdd');
         $r->post('/admin/counselor-home/cases/{id:\d+}/followup/{fid:\d+}/done', 'Admin\Casebook@followupDone');
+        // 随访计划（v2.23.0 / P2-A：周期计划 + 生成器实例化）
+        $r->post('/admin/counselor-home/cases/{id:\d+}/followup-plan', 'Admin\Casebook@planAdd');
+        $r->post('/admin/counselor-home/cases/{id:\d+}/followup-plan/{pid:\d+}/stop', 'Admin\Casebook@planStop');
         $r->get('/admin/counselor-home/bind-wx', 'Admin\CounselorHome@bindWx');
         $r->get('/admin/cron/plugins', 'Admin\Cron@plugins');
         $r->get('/admin/cron/minute', 'Admin\Cron@minute');
