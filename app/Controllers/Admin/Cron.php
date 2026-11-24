@@ -5,6 +5,7 @@ namespace app\Controllers\Admin;
 
 use app\Core\Database;
 use app\Core\Request;
+use app\Services\BackupService;
 use app\Services\NotifyService;
 use app\Services\StatsService;
 use app\Services\Updater;
@@ -211,6 +212,27 @@ class Cron
             $pushed++;
         }
         echo json_encode(['ok' => true, 'pushed' => $pushed], JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * 每日自动备份（v2.22.2）
+     * 客户站 crontab 示例：
+     *   30 4 * * * curl -s -H 'X-Cron-Secret: <cron_secret>' 'https://站点域名/admin/cron/backup?kind=db' >/dev/null
+     * kind=db（默认）只备数据库；kind=full 连 uploads 一起打 zip（体积大，建议每周一次）。
+     */
+    public function backup(Request $req, array $p): void
+    {
+        if (!$this->guard()) { http_response_code(403); echo 'forbidden'; exit; }
+        $kind = strtolower((string)$req->get('kind', 'db'));
+        $r = $kind === 'full' ? BackupService::full() : BackupService::database();
+        echo json_encode([
+            'ok'    => (bool)$r['ok'],
+            'kind'  => $kind === 'full' ? 'full' : 'db',
+            'msg'   => $r['msg'],
+            'file'  => $r['file'] !== '' ? basename($r['file']) : '',
+            'bytes' => (int)$r['bytes'],
+            'exec'  => \app\Services\PhpDbDumper::canExec() ? 'mysqldump' : 'php',
+        ], JSON_UNESCAPED_UNICODE);
     }
 
     public function upgradeCheck(Request $req, array $p): void

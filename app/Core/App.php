@@ -148,6 +148,7 @@ class App
         $r->get('/admin/cron/mail', 'Admin\Cron@mail');
         $r->get('/admin/cron/stats', 'Admin\Cron@stats');
         $r->get('/admin/cron/upgrade-check', 'Admin\Cron@upgradeCheck');
+        $r->get('/admin/cron/backup', 'Admin\Cron@backup');         // v2.22.2 每日自动备份
         $r->get('/admin/cron/booking-reminder', 'Admin\Cron@bookingReminder');
         $r->get('/admin/cron/morning-push', 'Admin\Cron@morningPush');
         $r->get('/admin/cron/publish', 'Admin\Cron@publish');
