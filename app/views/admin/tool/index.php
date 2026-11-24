@@ -79,8 +79,9 @@
 
   <div class="panel">
     <h2>缓存与日志</h2>
-    <form method="post" action="/admin/tools/cache"><?= csrf_field() ?>
-      <button class="btn btn-ghost" type="submit">清理系统缓存</button>
+    <form method="post" action="/admin/tools/cache" data-confirm="清理应用缓存、PHP opcache，并提交 CDN 刷新（已配置时）？"><?= csrf_field() ?>
+      <button class="btn btn-primary" type="submit">一键清理缓存</button>
+      <span class="hint" style="margin-left:10px">系统升级后点一次，前台无需强制刷新即自动切换到新页面（CDN 刷新需在「系统设置 → CDN 缓存刷新」配置阿里云 AccessKey）</span>
     </form>
     <h2>最近错误日志</h2>
     <?php if (!$logs): ?><p class="muted">暂无错误日志 🎉</p><?php endif; ?>

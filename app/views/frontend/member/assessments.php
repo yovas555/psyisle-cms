@@ -2,7 +2,7 @@
 <div class="container member-wrap">
   <div class="member-head">
     <h1>我的测评</h1>
-    <p class="muted"><a href="<?= url('/member') ?>">返回会员中心</a> · 共 <?= (int)$total ?> 条记录</p>
+    <p class="muted"><a href="<?= url('/member') ?>">返回会员中心</a> · <a href="<?= url('/assessment') ?>">去自测 ›</a> · 共 <?= (int)$total ?> 条记录</p>
   </div>
 
   <?php if (!$grouped): ?>

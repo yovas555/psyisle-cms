@@ -218,6 +218,9 @@ class App
         $r->get('/admin/events/{id:\d+}/regs', 'Admin\Event@registrations');
         $r->get('/admin/events/{id:\d+}/regs-export', 'Admin\Event@exportRegs');
         $r->post('/admin/events/reg-status/{id:\d+}', 'Admin\Event@regStatus');
+        // 咨询师入驻（v2.24.1）：从会员一键建档（注册会员→绑微信→管理员提升）
+        $r->get('/admin/counselors/promote', 'Admin\Counselor@promote');
+        $r->post('/admin/counselors/promote', 'Admin\Counselor@promote');
         $adminList = [
             'articles' => 'Admin\Article', 'pages' => 'Admin\Page', 'categories' => 'Admin\Category',
             'counselors' => 'Admin\Counselor', 'services' => 'Admin\Service', 'bookings' => 'Admin\Booking',
@@ -253,7 +256,7 @@ class App
         $r->get('/admin/tools/feedback', 'Admin\Tool@feedback');
         $r->post('/admin/tools/feedback', 'Admin\Tool@submitFeedback');
         $r->post('/admin/tools/import-content', 'Admin\Tool@importContent');
-        $r->post('/admin/tools/cache', 'Admin\Tool@clearCache');
+        $r->post('/admin/tools/cache', 'Admin\Tool@cachePurge');
         $r->post('/admin/tools/robots', 'Admin\Tool@saveRobots');
         $r->post('/admin/tools/ai-open', 'Admin\Tool@saveAiOpen');
         $r->post('/admin/tools/push-urls', 'Admin\Tool@pushUrls');

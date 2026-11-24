@@ -38,6 +38,11 @@
       <span class="muted"><?= (int)($upcomingCount ?? 0) ?> 条待赴约 / 共 <?= (int)$bookingTotal ?> 条</span>
       <em>查看 ›</em>
     </a>
+    <a class="member-card" href="<?= url('/assessment') ?>">
+      <b>心理测评</b>
+      <span class="muted"><?= (int)($assessTotal ?? 0) ?> 个自评量表在线测</span>
+      <em>去自测 ›</em>
+    </a>
     <a class="member-card" href="<?= url('/member/assessments') ?>">
       <b>我的测评</b>
       <span class="muted">已存档 <?= (int)$assessCount ?> 次量表记录</span>

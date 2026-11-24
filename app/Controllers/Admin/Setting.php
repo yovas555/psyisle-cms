@@ -81,6 +81,10 @@ class Setting extends Base
             'license.activate_url' => ['license_activate_url', 'general'],
             'security.admin_gate' => ['security_admin_gate', 'security'],
             'security.admin_ips' => ['security_admin_ips', 'security'],
+            // v2.24.1 CDN 缓存刷新（阿里云）：配置后「运维工具→清理缓存」可一键刷新 CDN
+            'cdn.access_key_id' => ['cdn_access_key_id', 'cdn'],
+            'cdn.access_key_secret' => ['cdn_access_key_secret', 'cdn'],
+            'cdn.domain' => ['cdn_domain', 'cdn'],
             'notify.login_notice' => ['notify_login_notice', 'notify'],
             'notify.on_booking' => ['notify_on_booking', 'notify'],
             'notify.on_message' => ['notify_on_message', 'notify'],

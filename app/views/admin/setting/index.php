@@ -181,6 +181,13 @@
           <span class="hint">手机号 / 身份证 / 邮箱 / 卡号替换为占位符</span>
         </label>
       </div>
+      <h2>CDN 缓存刷新（阿里云）</h2>
+      <div class="form-grid">
+        <label class="field"><span class="label">CDN 加速域名</span><input type="text" name="cdn.domain" value="<?= $v('cdn.domain', setting('site.domain', '')) ?>" placeholder="www.example.com（留空用站点域名）"></label>
+        <label class="field"><span class="label">AccessKey ID</span><input type="text" name="cdn.access_key_id" value="<?= $v('cdn.access_key_id') ?>" placeholder="阿里云 RAM 子账号的 AccessKey ID"></label>
+        <label class="field"><span class="label">AccessKey Secret</span><input type="password" name="cdn.access_key_secret" value="" placeholder="<?= setting('cdn.access_key_secret', '') !== '' ? '••••••••（已保存，留空不修改）' : '建议创建仅含 CDN 刷新权限的 RAM 子账号' ?>" autocomplete="new-password"></label>
+        <p class="hint" style="grid-column:1/-1;margin:4px 0 0">配置后「运维工具 → 清理缓存」会同时提交阿里云 CDN 全站目录刷新，系统升级后前台无需强刷即自动切换到新页面。未配置时清理缓存仍会清空应用缓存与 PHP opcache。</p>
+      </div>
       <h2>通知推送</h2>
       <div class="form-grid">
         <label class="field field-full"><span class="label">接收邮箱（支持多个值班邮箱，用 ; 分隔）</span><input type="text" name="notify.admin_email" value="<?= $v('notify.admin_email') ?>" placeholder="admin@example.com;duty@example.com（分号分隔，逐一发送）"></label>

@@ -34,13 +34,13 @@ class Member
             if ($account === '' || $password === '') {
                 $error = '请输入账号和密码';
             } else {
-                // ① 会员（手机号 + 密码）
-                [$ok, $msg] = MemberService::loginByPassword($account, $password);
-                if ($ok) { \app\Core\ResponseRedirect('/member'); }
-                // ② 咨询师（后台账号名 + 密码，绑定咨询师档案 → 直进工作台）
+                // ① 咨询师（users 表，仅放行绑定咨询师档案的账号）——入驻建档的账号 username=手机号，需优先于会员命中
                 [$cslOk, $cslMsg] = $this->loginCounselor($account, $password, $req);
                 if ($cslOk) { \app\Core\ResponseRedirect('/admin/counselor-home'); }
-                $error = $cslMsg !== '' ? $cslMsg : $msg;
+                // ② 会员（手机号 + 密码）
+                [$ok, $msg] = MemberService::loginByPassword($account, $password);
+                if ($ok) { \app\Core\ResponseRedirect('/member'); }
+                $error = $msg !== '' ? $msg : $cslMsg;
             }
         }
         $this->view('member/login', ['title' => '会员中心 · 登录', 'error' => $error]);
@@ -168,6 +168,7 @@ class Member
         $bookings = MemberService::myBookings((int)$m['id'], $m['phone']);
         $upcoming = array_values(array_filter($bookings, fn ($b) => in_array($b['status'], ['pending', 'confirmed', 'rescheduled'], true)));
         $assessCount = (int)\app\Core\Database::value('SELECT COUNT(*) FROM assessment_results WHERE member_id=?', [(int)$m['id']]);
+        $assessTotal = (int)\app\Core\Database::value('SELECT COUNT(*) FROM assessments WHERE status=1');
         // v2.8.1：插件卡片支持 sort 字段（缺省 50），中心页按序渲染；插件可注入待办与徽标
         $cards = \app\Core\Hook::fire('member.cards', ['member' => $m, 'cards' => []])['cards'] ?? [];
         usort($cards, fn ($a, $b) => ((int)($a['sort'] ?? 50)) <=> ((int)($b['sort'] ?? 50)));
@@ -180,7 +181,7 @@ class Member
             'title' => '会员中心', 'm' => $m,
             'upcoming' => array_slice($upcoming, 0, 3),
             'upcomingCount' => count($upcoming),
-            'bookingTotal' => count($bookings), 'assessCount' => $assessCount,
+            'bookingTotal' => count($bookings), 'assessCount' => $assessCount, 'assessTotal' => $assessTotal,
             'extraCards' => $cards, 'todo' => $todo, 'badges' => $badges,
         ]);
     }

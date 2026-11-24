@@ -130,6 +130,75 @@ class Tool extends Base
         \app\Core\ResponseRedirect('/admin/tools');
     }
 
+    /**
+     * 一键清理缓存（v2.24.1）：应用文件缓存 + PHP opcache + 阿里云 CDN 目录刷新（已配置 AccessKey 时）。
+     * 场景：系统升级后，让会员无需「强制刷新」即自动看到新页面。
+     */
+    public function cachePurge(Request $req, array $p): void
+    {
+        Csrf::guard();
+        $out = [];
+        // ① 应用文件缓存（settings_all / 限流 / 会话外缓存等）
+        Cache::flush();
+        $out[] = '应用缓存已清空';
+        // ② PHP opcache（升级部署后立即生效，无需 reload）
+        if (function_exists('opcache_reset') && @opcache_reset()) {
+            $out[] = 'PHP opcache 已重置';
+        } else {
+            $out[] = 'opcache 不可用（跳过）';
+        }
+        // ③ 阿里云 CDN 刷新（配置 AccessKey 后自动；未配置给指引）
+        $akId = trim((string)setting('cdn.access_key_id', ''));
+        $akSecret = trim(\app\Core\Crypto::decrypt((string)setting('cdn.access_key_secret', '')));
+        $domain = trim((string)setting('cdn.domain', ''));
+        if ($domain === '') {
+            $domain = preg_replace('#^https?://#', '', rtrim(base_url(), '/'));
+        }
+        if ($akId !== '' && $akSecret !== '' && $domain !== '') {
+            [$ok, $msg] = self::aliyunCdnRefresh($akId, $akSecret, $domain);
+            $out[] = $ok ? "CDN 缓存刷新已提交（{$domain}）：{$msg}" : "CDN 刷新失败：{$msg}";
+        } else {
+            $out[] = '未配置 CDN AccessKey（系统设置→CDN 缓存刷新）——如站点经 CDN 加速，请到阿里云 CDN 控制台手动刷新或配置后自动刷新';
+        }
+        $this->audit('tool.cache_purge', null, null, ['cdn' => ($akId !== '' ? 'attempted' : 'skipped'), 'domain' => $domain]);
+        Session::flash('success', '清理完成：' . implode('；', $out));
+        \app\Core\ResponseRedirect('/admin/tools');
+    }
+
+    /** 阿里云 CDN 刷新（RefreshObjectCaches，RPC V1 签名）→ [ok, 消息] */
+    private static function aliyunCdnRefresh(string $akId, string $akSecret, string $domain): array
+    {
+        try {
+            $params = [
+                'Action' => 'RefreshObjectCaches',
+                'ObjectPath' => 'https://' . $domain . '/',
+                'ObjectType' => 'Directory',
+                'Version' => '2018-05-10',
+                'Format' => 'JSON',
+                'AccessKeyId' => $akId,
+                'SignatureMethod' => 'HMAC-SHA1',
+                'SignatureVersion' => '1.0',
+                'SignatureNonce' => bin2hex(random_bytes(8)),
+                'Timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
+            ];
+            ksort($params);
+            $pairs = [];
+            foreach ($params as $k => $v) {
+                $pairs[] = rawurlencode((string)$k) . '=' . rawurlencode((string)$v);
+            }
+            $query = implode('&', $pairs);
+            $stringToSign = 'GET&' . rawurlencode('/') . '&' . rawurlencode($query);
+            $params['Signature'] = base64_encode(hash_hmac('sha1', $stringToSign, $akSecret . '&', true));
+            [$ok, $status, $resp] = \app\Core\Http::get('https://cdn.aliyuncs.com/?' . http_build_query($params), [], 15);
+            $r = json_decode((string)$resp, true);
+            if (!$ok) return [false, 'HTTP ' . $status];
+            if (isset($r['Code'])) return [false, str_take((string)($r['Message'] ?? $r['Code']), 140, '')];
+            return [true, '任务ID ' . (string)($r['RefreshTaskId'] ?? '') . '（约 5 分钟内全网生效）'];
+        } catch (\Throwable $t) {
+            return [false, str_take($t->getMessage(), 140, '')];
+        }
+    }
+
     /** 数据库备份（逻辑在 BackupService，与 cron 端点共用） */
     public function backup(Request $req, array $p): void
     {

@@ -96,4 +96,83 @@ class Counselor extends Base
         }
         return $data;
     }
+
+    /**
+     * 从会员提升为咨询师（咨询师入驻闭环）：
+     * 咨询师本人前台注册会员 → 绑定微信 → 管理员在此输入其手机号一键建档（上线展示）。
+     * 会员已绑微信时同步写 counselor_wx（unionid/mp_openid），微信/小程序登录即识别为咨询师。
+     */
+    public function promote(Request $req): void
+    {
+        if ($req->isPost()) {
+            \app\Core\Csrf::guard();
+            $phone = trim((string)$req->post('phone', ''));
+            if (!preg_match('/^1[3-9]\d{9}$/', $phone)) {
+                \app\Core\Session::flash('error', '手机号格式不正确');
+                \app\Core\ResponseRedirect('/admin/counselors/promote');
+            }
+            $m = Database::fetch('SELECT * FROM members WHERE phone=? AND status="active"', [$phone]);
+            if (!$m) {
+                \app\Core\Session::flash('error', '该手机号无会员记录——请让咨询师先在前台注册会员并绑定微信，再来此处建档');
+                \app\Core\ResponseRedirect('/admin/counselors/promote');
+            }
+            $dup = Database::fetch('SELECT id, name FROM counselors WHERE phone=?', [$phone]);
+            if ($dup) {
+                \app\Core\Session::flash('error', '该手机号已是咨询师（' . $dup['name'] . '），无需重复添加');
+                \app\Core\ResponseRedirect('/admin/counselors');
+            }
+            $unionid = trim((string)($m['unionid'] ?? ''));
+            $mpOpenid = trim((string)($m['mp_openid'] ?? ''));
+            foreach ([['unionid', $unionid], ['mp_openid', $mpOpenid]] as [$col, $val]) {
+                if ($val === '') continue;
+                $wxDup = Database::fetch("SELECT c.id, c.name FROM counselor_wx cw JOIN counselors c ON c.id=cw.counselor_id WHERE cw.`{$col}`=?", [$val]);
+                if ($wxDup) {
+                    \app\Core\Session::flash('error', "该会员的微信已绑定咨询师「{$wxDup['name']}」，请先解绑或更换微信号");
+                    \app\Core\ResponseRedirect('/admin/counselors/promote');
+                }
+            }
+            $name = trim((string)($m['name'] ?? '')) !== '' ? mb_substr((string)$m['name'], 0, 40) : '咨询师' . substr($phone, -4);
+            $slug = \app\Core\Str::slugify($name) ?: 'c-' . date('YmdHis');
+            if (Database::fetch('SELECT id FROM counselors WHERE slug=?', [$slug])) {
+                $slug .= '-' . bin2hex(random_bytes(2));
+            }
+            $cid = (int)Database::insert('counselors', [
+                'name' => $name, 'slug' => $slug, 'phone' => $phone,
+                'status' => 1, 'sort' => 100,
+                'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            // 同步创建工作台账号（username=手机号、密码与会员一致）：账号密码/微信登录均直进工作台
+            $roleId = (int)Database::value("SELECT id FROM roles WHERE permissions LIKE '%counselor_workspace%' ORDER BY id LIMIT 1", []);
+            if ($roleId <= 0) { $roleId = 5; }
+            $uid = 0;
+            if (!Database::fetch('SELECT id FROM users WHERE username=?', [$phone])) {
+                $uid = (int)Database::insert('users', [
+                    'username' => $phone,
+                    'password_hash' => (string)($m['password_hash'] ?? ''),
+                    'display_name' => $name,
+                    'role_id' => $roleId,
+                    'status' => 1,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                Database::run('UPDATE counselors SET user_id=? WHERE id=?', [$uid, $cid]);
+            }
+            $wxSynced = false;
+            if ($unionid !== '' || $mpOpenid !== '') {
+                Database::insert('counselor_wx', [
+                    'counselor_id' => $cid,
+                    'unionid' => $unionid !== '' ? $unionid : null,
+                    'mp_openid' => $mpOpenid !== '' ? $mpOpenid : null,
+                    'nickname' => mb_substr(trim((string)($m['name'] ?? '')), 0, 80) ?: null,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                $wxSynced = true;
+            }
+            $this->audit('counselor.promote', 'counselor', $cid, ['name' => $name, 'phone' => $phone, 'wx' => $wxSynced ? 'synced' : 'none']);
+            \app\Core\Session::flash('success', "已添加咨询师「{$name}」{$phone}" . ($wxSynced
+                ? '，微信已同步——其微信/小程序登录将直进咨询师工作台'
+                : '。该会员尚未绑定微信：请其先在会员中心绑定微信（绑定后小程序登录自动识别）'));
+            \app\Core\ResponseRedirect('/admin/counselors');
+        }
+        $this->view('counselor/promote');
+    }
 }
