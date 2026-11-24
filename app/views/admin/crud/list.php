@@ -74,7 +74,7 @@ $segGuide = $seg_guides[$baseSeg] ?? null;
       <a class="btn btn-sm btn-ghost" href="<?= url('/' . ($baseSeg === 'counselors' ? 'counselors' : 'services') . '/' . $r['slug']) ?>" target="_blank">查看</a>
       <?php endif; ?>
       <?php if ($baseSeg === 'navs' && !empty($r['page_id'])): ?>
-      <a class="btn btn-sm btn-primary" href="/admin/pages/<?= (int)$r['page_id'] ?>/edit" title="编辑该导航指向的单页内容">编辑内容</a>
+      <a class="btn btn-sm btn-ghost" href="/admin/pages/<?= (int)$r['page_id'] ?>/edit" title="编辑该导航指向的单页内容">编辑内容</a>
       <?php endif; ?>
       <a class="btn btn-sm btn-ghost" href="<?= $editBase ?>/<?= $r['id'] ?>/edit">编辑</a>
       <?php if (array_key_exists('status', $r) || array_key_exists('is_featured', $r)):
@@ -82,11 +82,11 @@ $segGuide = $seg_guides[$baseSeg] ?? null;
             ? (($r['status'] ?? '') === 'published' || (string)($r['status'] ?? '0') === '1')
             : (int)($r['status'] ?? 0) > 0; ?>
       <form method="post" action="<?= $editBase ?>/toggle/<?= $r['id'] ?>" style="display:inline"><?= csrf_field() ?>
-        <button class="btn btn-sm btn-ghost" type="submit"><?= $on ? '下线' : '启用' ?></button>
+        <button class="btn-sm btn-text" type="submit"><?= $on ? '下线' : '启用' ?></button>
       </form>
       <?php endif; ?>
       <form method="post" action="<?= $editBase ?>/delete/<?= $r['id'] ?>" style="display:inline" data-confirm="确认删除？此操作不可恢复"><?= csrf_field() ?>
-        <button class="btn btn-sm btn-danger" type="submit">删除</button>
+        <button class="btn-sm btn-text danger" type="submit">删除</button>
       </form>
     </td>
   </tr>

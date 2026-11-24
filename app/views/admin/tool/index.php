@@ -5,6 +5,13 @@
   <ol><li>数据库备份建议每周一次（保留 30 天）；升级前系统自动额外备份；v2.22.2 起支持每日自动备份</li><li>站长平台验证文件上传后即通过验证</li><li>发布文章会自动推送百度/IndexNow；也可手动点「推送最新 URL」</li><li>计划任务已配好（邮件/统计/升级检查/预约提醒/自动备份）</li></ol>
 </div>
 <div class="dash-grid">
+  <div class="panel" style="border:2px solid var(--primary,#0d9488)">
+    <h2 style="margin-top:0">⚡ 一键清理缓存</h2>
+    <form method="post" action="/admin/tools/cache" data-confirm="清理应用缓存、PHP opcache，并提交 CDN 刷新（已配置时）？"><?= csrf_field() ?>
+      <button class="btn btn-primary" type="submit">立即清理</button>
+    </form>
+    <p class="hint" style="margin-top:10px">系统升级后点一次，前台无需强制刷新即自动切换到新页面。CDN 刷新需先在「系统设置 → CDN 缓存刷新」配置阿里云 AccessKey（未配置时仍会清应用缓存与 opcache）。</p>
+  </div>
   <div class="panel">
     <h2>SEO 工具</h2>
     <p class="hint">动态资产生成于访问时：/sitemap.xml · /robots.txt · /rss.xml · /llms.txt</p>
@@ -78,11 +85,6 @@
   </div>
 
   <div class="panel">
-    <h2>缓存与日志</h2>
-    <form method="post" action="/admin/tools/cache" data-confirm="清理应用缓存、PHP opcache，并提交 CDN 刷新（已配置时）？"><?= csrf_field() ?>
-      <button class="btn btn-primary" type="submit">一键清理缓存</button>
-      <span class="hint" style="margin-left:10px">系统升级后点一次，前台无需强制刷新即自动切换到新页面（CDN 刷新需在「系统设置 → CDN 缓存刷新」配置阿里云 AccessKey）</span>
-    </form>
     <h2>最近错误日志</h2>
     <?php if (!$logs): ?><p class="muted">暂无错误日志 🎉</p><?php endif; ?>
     <?php foreach ($logs as $file => $lines): ?>
