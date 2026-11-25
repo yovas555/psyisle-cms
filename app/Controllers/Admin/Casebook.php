@@ -374,6 +374,8 @@ class Casebook extends CounselorHome
             \app\Core\ResponseRedirect('/admin/counselor-home/cases');
         }
         $caseId = (int)$case['id'];
+        $plans = FollowupPlanService::plansOf($caseId, $cid);
+        $activePlans = count(array_filter($plans, static fn (array $plan): bool => (string)$plan['status'] === 'active'));
         $this->audit('case.care_view', 'cases', $caseId);
         $this->view('counselor-home/care', [
             'title' => '照护 · ' . (string)$case['case_no'],
@@ -382,7 +384,8 @@ class Casebook extends CounselorHome
             'crises' => CaseCareService::crisesOf($caseId, $cid),
             'homeworks' => CaseCareService::homeworksOf($caseId, $cid),
             'followups' => CaseCareService::followupsOf($caseId, $cid),
-            'plans' => FollowupPlanService::plansOf($caseId, $cid),
+            'plans' => $plans,
+            'activePlans' => $activePlans,
             'planStatus' => FollowupPlanService::STATUS,
             'sessions' => CaseService::sessionsOf($caseId),
             'levels' => CaseCareService::CRISIS_LEVEL,
