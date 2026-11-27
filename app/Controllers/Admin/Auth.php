@@ -39,7 +39,7 @@ class Auth
             return;
         }
         $username = trim((string)$req->post('username', ''));
-        $password = (string)$req->post('password', '');
+        $password = (string)$req->postRaw('password', '');
         if ($username === '' || $password === '') {
             $this->fail($req, '请输入用户名和密码');
             return;
@@ -56,6 +56,11 @@ class Auth
                 return;
             }
             if (password_verify($password, (string)$u['password_hash'])) {
+                Session::start();
+                if (session_status() !== PHP_SESSION_ACTIVE || !session_regenerate_id(true)) {
+                    $this->fail($req, '会话创建失败，请重试');
+                    return;
+                }
                 // 已开启两步验证 → 进入验证阶段
                 if (!empty($u['totp_secret'])) {
                     Session::set('totp_pending', ['id' => $u['id'], 'username' => $u['username'],
@@ -74,7 +79,6 @@ class Auth
                 Session::set('admin_ua', hash('sha256', (string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
                 // v2.11.0：演示模式——role_id=6（演示管理员）的账号只读
                 if ((int)($u['role_id'] ?? 0) === 6) { Session::set('admin_demo', true); }
-                session_regenerate_id(true);
                 $this->auditLog($u, $ip, 'login.success');
                 // v2.20.2：咨询师身份识别——绑定 counselors.user_id 的账号直进咨询师工作台
                 $cslBind = Database::value('SELECT id FROM counselors WHERE user_id=? AND status=1', [(int)$u['id']]);
@@ -82,18 +86,21 @@ class Auth
                 header('Location: /admin'); exit;
             }
             // 失败计数
-            $failed = (int)$u['failed_count'] + 1;
-            $upd = ['failed_count' => $failed];
+            Database::run('UPDATE users SET failed_count=failed_count+1 WHERE id=?', [$u['id']]);
+            $failed = (int)Database::value('SELECT failed_count FROM users WHERE id=?', [$u['id']]);
+            $upd = [];
             if ($failed >= 5) { $upd['locked_until'] = date('Y-m-d H:i:s', time() + 900); $lockMsg = '（已触发锁定）'; }
-            Database::update('users', $upd, 'id=?', [$u['id']]);
+            if ($upd) Database::update('users', $upd, 'id=?', [$u['id']]);
             if ($failed >= 3) {
                 NotifyService::push('login_alert', '后台登录连续失败告警',
                     sprintf('账号 %s 连续 %d 次密码错误%s，IP：%s', $u['username'], $failed, $lockMsg, $ip));
             }
         }
         Logger::info('auth', 'login failed', ['username' => $username, 'ip' => $ip]);
-        $gf = (int)(Cache::get('login_global_fail') ?? 0) + 1;
-        Cache::set('login_global_fail', $gf, 900);
+        Cache::mutateIf('login_global_fail', 900, static function (&$count): bool {
+            $count = (int)$count + 1;
+            return true;
+        });
         $this->fail($req, '用户名或密码不正确' . $lockMsg);
     }
 
@@ -136,6 +143,11 @@ class Auth
         $pending = Session::get('totp_pending');
         if (!$pending) { header('Location: /admin/login'); exit; }
         $code = (string)$req->post('code', '');
+        if (!RateLimiter::hit('admin_totp_user', (string)(int)$pending['id'], 5, 600)
+            || !RateLimiter::hit('admin_totp', (int)$pending['id'] . '|' . $req->ip(), 5, 600)) {
+            Session::set('_totp_error', '两步验证尝试过于频繁，请 10 分钟后再试');
+            header('Location: /admin/totp'); exit;
+        }
         $u = Database::fetch('SELECT * FROM users WHERE id=? AND status=1', [$pending['id']]);
         if (!$u || empty($u['totp_secret']) || !\app\Core\Totp::verify((string)$u['totp_secret'], $code)) {
             Logger::info('auth', 'totp failed', ['username' => $u['username'] ?? '?']);
@@ -143,6 +155,11 @@ class Auth
             header('Location: /admin/totp'); exit;
         }
         Session::forget('totp_pending');
+        Session::start();
+        if (session_status() !== PHP_SESSION_ACTIVE || !session_regenerate_id(true)) {
+            $this->fail($req, '会话创建失败，请重试');
+            return;
+        }
         Database::update('users', [
             'failed_count' => 0, 'locked_until' => null,
             'last_login_at' => date('Y-m-d H:i:s'), 'last_login_ip' => $req->ip(),
@@ -153,7 +170,6 @@ class Auth
         ]);
         Session::set('admin_last_active', time());
         Session::set('admin_ua', hash('sha256', (string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
-        session_regenerate_id(true);
         $this->auditLog($u, $req->ip(), 'login.success.totp');
         header('Location: /admin'); exit;
     }

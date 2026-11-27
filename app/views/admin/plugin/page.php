@@ -23,6 +23,7 @@ $settings = $meta['settings'] ?? [];
 <?php else: ?>
 <form class="form card" method="post" action="/admin/plugin/<?= e($slug) ?>/save-settings">
   <?= csrf_field() ?>
+  <input type="hidden" name="_full_settings" value="1">
   <h2>插件配置（接口与运行参数）</h2>
   <div class="form-grid">
   <?php foreach ($settings as $f):

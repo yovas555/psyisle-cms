@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\Services;
 
 use app\Core\Cache;
+use app\Core\Crypto;
 use app\Core\Database;
 use app\Core\Mailer;
 use app\Core\RateLimiter;
@@ -26,8 +27,9 @@ class MemberService
         $phone = trim($phone);
         $code = strtoupper(trim($code));
         if (!self::validPhone($phone) || $code === '') return [false, '请输入正确的手机号与预约查询码'];
-        if (!RateLimiter::hit('member_login', $phone . '|' . ($_SERVER['REMOTE_ADDR'] ?? ''), 8, 3600)) {
-            return [false, '尝试过于频繁，请 1 小时后再试'];
+        if (!RateLimiter::hit('member_code_login_phone', $phone, 10, 1800)
+            || !RateLimiter::hit('member_login', $phone . '|' . ($_SERVER['REMOTE_ADDR'] ?? ''), 8, 3600)) {
+            return [false, '尝试过于频繁，请 30 分钟后再试'];
         }
         $b = Database::fetch('SELECT id FROM bookings WHERE code=? AND phone=?', [$code, $phone]);
         if (!$b) return [false, '未找到对应预约记录，请核对查询码与手机号'];
@@ -40,13 +42,14 @@ class MemberService
         $phone = trim($phone);
         $code = trim($code);
         if (!self::validPhone($phone) || !preg_match('/^\d{6}$/', $code)) return [false, '请输入正确的手机号与 6 位验证码'];
-        if (!RateLimiter::hit('member_login', $phone . '|' . ($_SERVER['REMOTE_ADDR'] ?? ''), 8, 3600)) {
-            return [false, '尝试过于频繁，请 1 小时后再试'];
+        if (!RateLimiter::hit('member_sms_verify', $phone, 10, 1800)
+            || !RateLimiter::hit('member_login', $phone . '|' . ($_SERVER['REMOTE_ADDR'] ?? ''), 8, 3600)) {
+            return [false, '尝试过于频繁，请稍后再试'];
         }
         $key = 'mcode:' . hash('sha256', $phone);
-        $expect = Cache::get($key);
-        if (!is_string($expect) || !hash_equals($expect, $code)) return [false, '验证码不正确或已过期'];
-        Cache::forget($key); // 一次性
+        if (!Cache::consumeIf($key, static function ($expect) use ($code): bool {
+            return is_string($expect) && hash_equals($expect, $code);
+        })) return [false, '验证码不正确或已过期'];
         return self::establish($phone);
     }
 
@@ -55,6 +58,7 @@ class MemberService
     {
         $phone = trim($phone);
         if (!self::validPhone($phone)) return [false, '手机号格式不正确'];
+        if (!self::smsReady()) return [false, '短信验证码通道未配置完整，请联系机构'];
         if (!RateLimiter::hit('member_code', $phone, 1, 60)) return [false, '发送过于频繁，请 60 秒后再试'];
         if (!RateLimiter::hit('member_code_ip', ($_SERVER['REMOTE_ADDR'] ?? ''), 10, 3600)) {
             return [false, '本机发送次数已达上限，请稍后再试'];
@@ -70,9 +74,11 @@ class MemberService
     /** 短信通道是否就绪（登录页决定展示哪种方式） */
     public static function smsReady(): bool
     {
-        return (bool)setting('sms.enabled', '0')
+        return (bool)setting('sms.code_enabled', '0')
             && trim((string)setting('sms.code_template_code', '')) !== ''
-            && trim((string)setting('sms.access_key_id', '')) !== '';
+            && trim((string)setting('sms.access_key_id', '')) !== ''
+            && trim((string)Crypto::decrypt((string)setting('sms.access_secret', ''))) !== ''
+            && trim((string)setting('sms.sign_name', '')) !== '';
     }
 
     /** 建立会员会话（存在即登录；新手机号自动注册）。v2.7.0 起公开：微信登录插件复用同一会话路径 */
@@ -81,9 +87,10 @@ class MemberService
         $m = Database::fetch('SELECT * FROM members WHERE phone=?', [$phone]);
         $now = date('Y-m-d H:i:s');
         $ipHash = md5(($_SERVER['REMOTE_ADDR'] ?? '') . (CONFIG['stats_salt'] ?? 'psyisle-salt'));
+        $created = false;
         if ($m) {
-            if ($m['status'] === 'delete_requested') {
-                return [false, '该手机号已提交注销申请，如需恢复请联系机构'];
+            if (($m['status'] ?? '') !== 'active') {
+                return [false, '该账号当前不可登录'];
             }
             Database::run('UPDATE members SET last_login_at=?, last_login_ip_hash=? WHERE id=?', [$now, $ipHash, (int)$m['id']]);
         } else {
@@ -92,9 +99,12 @@ class MemberService
                 'created_at' => $now, 'last_login_at' => $now, 'last_login_ip_hash' => $ipHash,
             ]);
             $m = Database::fetch('SELECT * FROM members WHERE phone=?', [$phone]);
+            $created = true;
+        }
+        if (!self::bindMemberSession($m)) return [false, '会话创建失败，请重试'];
+        if ($created) {
             NotifyService::push('member', '新会员注册', '手机号 ' . self::maskPhone($phone) . ' 已加入会员中心');
         }
-        self::bindMemberSession($m);
         return [true, '登录成功'];
     }
 
@@ -103,18 +113,17 @@ class MemberService
      * 先轮换 session id 再写会话，防会话固定（攻击者预置 sessid 后诱导登录）。
      * 预约码 / 短信 / 密码 / 微信四条登录入口统一走这里。
      */
-    private static function bindMemberSession(array $m): void
+    private static function bindMemberSession(array $m): bool
     {
         Session::start();
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            @session_regenerate_id(true);
-        }
+        if (session_status() !== PHP_SESSION_ACTIVE || !session_regenerate_id(true)) return false;
         Session::set('member_user', [
             'id' => (int)$m['id'],
             'phone' => (string)$m['phone'],
             'name' => $m['name'] ?? null,
         ]);
         Session::set('member_ua', hash('sha256', (string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
+        return true;
     }
 
     /**
@@ -128,7 +137,7 @@ class MemberService
         $now = date('Y-m-d H:i:s');
         $ipHash = md5(($_SERVER['REMOTE_ADDR'] ?? '') . (CONFIG['stats_salt'] ?? 'psyisle-salt'));
         Database::run('UPDATE members SET last_login_at=?, last_login_ip_hash=? WHERE id=?', [$now, $ipHash, (int)$m['id']]);
-        self::bindMemberSession($m);
+        if (!self::bindMemberSession($m)) return [false, '会话创建失败，请重试'];
         return [true, '登录成功'];
     }
 
@@ -137,14 +146,15 @@ class MemberService
     {
         $phone = trim($phone);
         if (!self::validPhone($phone) || $password === '') return [false, '请输入手机号与密码'];
-        if (!RateLimiter::hit('member_pwd_login', $phone . '|' . ($_SERVER['REMOTE_ADDR'] ?? ''), 8, 3600)) {
-            return [false, '尝试过于频繁，请 1 小时后再试'];
+        if (!RateLimiter::hit('member_pwd_login_phone', $phone, 10, 1800)
+            || !RateLimiter::hit('member_pwd_login', $phone . '|' . ($_SERVER['REMOTE_ADDR'] ?? ''), 8, 3600)) {
+            return [false, '尝试过于频繁，请 30 分钟后再试'];
         }
         $m = Database::fetch('SELECT * FROM members WHERE phone=?', [$phone]);
         if (!$m || empty($m['password_hash'])) {
             return [false, '该手机号未设置密码，可先用预约查询码登录，或在设置中开启密码'];
         }
-        if ($m['status'] === 'delete_requested') return [false, '该账号已提交注销申请，如需恢复请联系机构'];
+        if (($m['status'] ?? '') !== 'active') return [false, '该账号当前不可登录'];
         if (!password_verify($password, (string)$m['password_hash'])) {
             return [false, '手机号或密码不正确'];
         }
@@ -154,13 +164,13 @@ class MemberService
         }
         $ipHash = md5(($_SERVER['REMOTE_ADDR'] ?? '') . (CONFIG['stats_salt'] ?? 'psyisle-salt'));
         Database::run('UPDATE members SET last_login_at=?, last_login_ip_hash=? WHERE id=?', [date('Y-m-d H:i:s'), $ipHash, (int)$m['id']]);
-        self::bindMemberSession($m);
+        if (!self::bindMemberSession($m)) return [false, '会话创建失败，请重试'];
         return [true, '登录成功'];
     }
 
     /**
      * 注册（v2.9.0）：手机号 + 密码，不依赖微信/短信插件。
-     * 已有同号会员（预约建立/查询码登录过的）可直接设置密码合并进会员体系。
+     * 已有同号会员必须先通过预约查询码或短信验证码证明手机号归属，再在登录态设置密码。
      */
     public static function register(string $phone, string $password, string $name, string $email): array
     {
@@ -177,17 +187,8 @@ class MemberService
         }
         $m = Database::fetch('SELECT * FROM members WHERE phone=?', [$phone]);
         if ($m) {
-            if ($m['status'] === 'delete_requested') return [false, '该手机号已提交注销申请，如需恢复请联系机构'];
-            if (!empty($m['password_hash'])) return [false, '该手机号已注册，请直接登录或使用「忘记密码」'];
-            // 已有会员（预约建立）→ 设置密码完成激活
-            Database::run('UPDATE members SET password_hash=?, name=COALESCE(NULLIF(?,""),name), email=COALESCE(NULLIF(?,""),email), last_login_at=? WHERE id=?',
-                [password_hash($password, PASSWORD_BCRYPT), $name, $email, date('Y-m-d H:i:s'), (int)$m['id']]);
-            self::bindMemberSession([
-                'id' => (int)$m['id'],
-                'phone' => $phone,
-                'name' => $name !== '' ? $name : ($m['name'] ?? null),
-            ]);
-            return [true, '激活成功，欢迎加入会员中心'];
+            if (($m['status'] ?? '') !== 'active') return [false, '该账号当前不可登录'];
+            return [false, '该手机号已有会员记录，请先用预约查询码或短信验证码登录，再设置密码'];
         }
         $ipHash = md5(($_SERVER['REMOTE_ADDR'] ?? '') . (CONFIG['stats_salt'] ?? 'psyisle-salt'));
         Database::insert('members', [
@@ -200,11 +201,11 @@ class MemberService
             'last_login_at' => date('Y-m-d H:i:s'),
             'last_login_ip_hash' => $ipHash,
         ]);
-        self::bindMemberSession([
+        if (!self::bindMemberSession([
             'id' => (int)Database::value('SELECT id FROM members WHERE phone=?', [$phone]),
             'phone' => $phone,
             'name' => $name !== '' ? $name : null,
-        ]);
+        ])) return [false, '会话创建失败，请重试'];
         NotifyService::push('member', '新会员注册', '手机号 ' . self::maskPhone($phone) . ' 完成注册（手机号+密码）');
         return [true, '注册成功，欢迎加入会员中心'];
     }
@@ -214,11 +215,15 @@ class MemberService
     {
         $pwdErr = \app\Core\PasswordPolicy::check($new);
         if ($pwdErr !== null) return [false, $pwdErr];
+        if (!RateLimiter::hit('member_pwd_change', (int)$m['id'] . '|' . ($_SERVER['REMOTE_ADDR'] ?? ''), 5, 600)) {
+            return [false, '尝试过于频繁，请 10 分钟后再试'];
+        }
         $row = Database::fetch('SELECT password_hash FROM members WHERE id=?', [(int)$m['id']]);
         if ($row && !empty($row['password_hash'])) {
             if ($old === '' || !password_verify($old, (string)$row['password_hash'])) return [false, '当前密码不正确'];
         }
-        Database::run('UPDATE members SET password_hash=? WHERE id=?', [password_hash($new, PASSWORD_BCRYPT), (int)$m['id']]);
+        $stmt = Database::run('UPDATE members SET password_hash=? WHERE id=? AND status="active"', [password_hash($new, PASSWORD_BCRYPT), (int)$m['id']]);
+        if ($stmt->rowCount() !== 1) return [false, '账号状态已变化，请重新登录后再试'];
         return [true, '密码已更新'];
     }
 
@@ -282,8 +287,13 @@ class MemberService
         $u = Session::get('member_user');
         if (!$u) return null;
         $ua = Session::get('member_ua');
+        if (!is_string($ua) || $ua === '') {
+            Session::forget('member_user');
+            Session::forget('member_ua');
+            return null;
+        }
         $cur = hash('sha256', (string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
-        if ($ua && !hash_equals((string)$ua, $cur)) {
+        if (!hash_equals($ua, $cur)) {
             Session::forget('member_user');
             return null;
         }
@@ -473,15 +483,18 @@ class MemberService
     public static function sendPasswordResetSms(string $phone): array
     {
         $phone = trim($phone);
-        if (!preg_match('/^1[3-9]\d{9}$/', $phone)) return [false, '手机号格式不正确'];
+        if (!self::validPhone($phone)) return [false, '手机号格式不正确'];
+        if (!self::smsReady()) return [false, '短信验证码通道未配置完整，请联系机构'];
         if (!RateLimiter::hit('pwd_sms', $phone, 3, 3600)) return [false, '请求过于频繁，请 1 小时后再试'];
+        if (!RateLimiter::hit('pwd_sms_cooldown', $phone, 1, 60)) return [false, '发送过于频繁，请 60 秒后再试'];
+        if (!RateLimiter::hit('pwd_sms_ip', $_SERVER['REMOTE_ADDR'] ?? '', 10, 3600)) return [false, '本机发送次数已达上限，请稍后再试'];
         $m = Database::fetch('SELECT id, name FROM members WHERE phone=? AND status="active"', [$phone]);
         if (!$m) return [false, '该手机号未注册会员'];
         if (!class_exists(\plugins\smsnotify\Plugin::class)) return [false, '短信通道未安装'];
         $code = (string)random_int(100000, 999999);
         [$ok, $msg] = \plugins\smsnotify\Plugin::sendCode($phone, $code);
         if (!$ok) return [false, $msg];
-        Cache::set('pwd_sms:' . hash('sha256', $phone), json_encode(['code' => $code, 'id' => (int)$m['id']]), 600);
+        Cache::set('pwd_sms:' . hash('sha256', $phone), json_encode(['code' => $code, 'id' => (int)$m['id']], JSON_UNESCAPED_UNICODE), 600);
         return [true, '验证码已发送（10 分钟内有效）'];
     }
 
@@ -490,15 +503,26 @@ class MemberService
     {
         $phone = trim($phone);
         $code = trim($code);
-        if (!preg_match('/^1[3-9]\d{9}$/', $phone) || !preg_match('/^\d{6}$/', $code)) return [false, '参数不正确'];
+        if (!self::validPhone($phone) || !preg_match('/^\d{6}$/', $code)) return [false, '参数不正确'];
         $pwdErr = \app\Core\PasswordPolicy::check($newPassword);
         if ($pwdErr !== null) return [false, $pwdErr];
+        if (!RateLimiter::hit('pwd_sms_verify_phone', $phone, 10, 1800)
+            || !RateLimiter::hit('pwd_sms_verify', $phone . '|' . ($_SERVER['REMOTE_ADDR'] ?? ''), 10, 1800)) {
+            return [false, '验证码尝试过于频繁，请 30 分钟后再试'];
+        }
         $key = 'pwd_sms:' . hash('sha256', $phone);
-        $row = json_decode((string)Cache::get($key), true);
-        if (!is_array($row) || !hash_equals((string)($row['code'] ?? ''), $code)) return [false, '验证码不正确或已过期'];
-        Cache::forget($key);
-        $hash = password_hash($newPassword, PASSWORD_DEFAULT);
-        Database::run('UPDATE members SET password_hash=' . Database::pdo()->quote($hash) . ' WHERE id=? AND status="active"', [(int)$row['id']]);
+        $row = null;
+        if (!Cache::consumeIf($key, static function ($raw) use ($code, &$row): bool {
+            $data = json_decode((string)$raw, true);
+            if (!is_array($data)) return false;
+            $row = $data;
+            return isset($data['code'], $data['id'])
+                && is_string($data['code']) && hash_equals($data['code'], $code);
+        })) return [false, '验证码不正确或已过期'];
+        $hash = password_hash($newPassword, PASSWORD_BCRYPT);
+        $stmt = Database::run('UPDATE members SET password_hash=? WHERE id=? AND phone=? AND status="active"',
+            [$hash, (int)$row['id'], $phone]);
+        if ($stmt->rowCount() !== 1) return [false, '账号状态已变化，请重新获取验证码'];
         return [true, '密码已重置，请用新密码登录'];
     }
 
@@ -508,10 +532,11 @@ class MemberService
         $email = trim(strtolower($email));
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) return [false, '请输入正确的邮箱地址'];
         if (!RateLimiter::hit('pwd_reset', $email, 3, 3600)) return [false, '请求过于频繁，请 1 小时后再试'];
-        $m = Database::fetch('SELECT id, phone, name FROM members WHERE email=? AND status="active"', [$email]);
+        $m = Database::fetch('SELECT id, phone, name, email FROM members WHERE email=? AND status="active"', [$email]);
         if (!$m) return [true, '如果该邮箱已注册，重置链接将发送到您的邮箱（如未收到请检查垃圾箱）'];
         $token = bin2hex(random_bytes(16));
-        Cache::set('pwd_reset:' . $token, json_encode(['id' => (int)$m['id'], 'email' => $email]), 1800);
+        $key = 'pwd_reset:' . $token;
+        Cache::set($key, json_encode(['id' => (int)$m['id'], 'email' => (string)$m['email']], JSON_UNESCAPED_UNICODE), 1800);
         $site = (string)setting('site.name', '心理咨询中心');
         $link = rtrim(base_url(), '/') . '/member/reset-password?token=' . $token;
         $html = '<div style="max-width:560px;margin:0 auto;font-family:PingFang SC,Microsoft YaHei,sans-serif;color:#173010">'
@@ -523,6 +548,7 @@ class MemberService
             . '<p style="font-size:12px;color:#94a3b8">如果您没有请求重置密码，请忽略本邮件。</p></div>';
         $r = Mailer::send($email, '【' . $site . '】密码重置', $html);
         if ($r['ok'] ?? false) return [true, '重置链接已发送到您的邮箱（30 分钟内有效）'];
+        Cache::forget($key);
         return [false, '邮件发送失败，请稍后再试或联系机构'];
     }
 
@@ -530,11 +556,15 @@ class MemberService
     {
         $pwdErr = \app\Core\PasswordPolicy::check($newPassword);
         if ($pwdErr !== null) return [false, $pwdErr];
-        $raw = Cache::get('pwd_reset:' . $token);
-        $data = $raw ? json_decode((string)$raw, true) : null;
-        if (!is_array($data) || empty($data['id'])) return [false, '重置链接无效或已过期，请重新获取'];
-        Database::run('UPDATE members SET password_hash=? WHERE id=?', [password_hash($newPassword, PASSWORD_BCRYPT), (int)$data['id']]);
-        Cache::forget('pwd_reset:' . $token);
+        if (!preg_match('/^[a-f0-9]{32}$/', $token)) return [false, '重置链接无效或已过期，请重新获取'];
+        $data = null;
+        if (!Cache::consumeIf('pwd_reset:' . $token, static function ($raw) use (&$data): bool {
+            $data = json_decode((string)$raw, true);
+            return is_array($data) && !empty($data['id']) && !empty($data['email']);
+        })) return [false, '重置链接无效或已过期，请重新获取'];
+        $stmt = Database::run('UPDATE members SET password_hash=? WHERE id=? AND email=? AND status="active"',
+            [password_hash($newPassword, PASSWORD_BCRYPT), (int)$data['id'], (string)$data['email']]);
+        if ($stmt->rowCount() !== 1) return [false, '账号信息已变化，请重新获取重置链接'];
         return [true, '密码已重置，请使用新密码登录'];
     }
 

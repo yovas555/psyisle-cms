@@ -31,7 +31,7 @@ class Member
         if ($req->isPost()) {
             Csrf::guard();
             $account = trim((string)$req->post('account', ''));
-            $password = (string)$req->post('password', '');
+            $password = (string)$req->postRaw('password', '');
             if ($account === '' || $password === '') {
                 $error = '请输入账号和密码';
             } else {
@@ -49,32 +49,28 @@ class Member
 
     /**
      * 咨询师前台登录（统一入口分流）：
-     * 只放行「绑定咨询师档案的账号」（counselors.user_id），普通管理员仍走后台 /admin 登录。
-     * 命中即建立 admin 会话 + 设置后台闸口 cookie，跳咨询师工作台。
-     * @return [ok, msg]（msg 为空 = 非咨询师账号，静默，由上层用会员侧错误提示）
+     * 只识别已绑定有效咨询师档案的后台账号；普通管理员不会在此被查询或累计失败次数。
+     * @return [ok, msg]
      */
     private function loginCounselor(string $account, string $password, Request $req): array
     {
-        $u = Database::fetch('SELECT * FROM users WHERE username=? AND status=1', [$account]);
+        $u = Database::fetch('SELECT u.* FROM users u JOIN counselors c ON c.user_id=u.id AND c.status=1 WHERE u.username=? AND u.status=1', [$account]);
         if (!$u) return [false, ''];
+        if (!RateLimiter::hit('counselor_pwd_login', $account . '|' . $req->ip(), 8, 3600)) {
+            return [false, '尝试过于频繁，请 1 小时后再试'];
+        }
         if (!empty($u['locked_until']) && strtotime((string)$u['locked_until']) > time()) {
             return [false, '账号已临时锁定，请 15 分钟后再试'];
         }
         if (!password_verify($password, (string)$u['password_hash'])) {
-            // 后台账号密码错：走后台登录失败计数逻辑（复用限流语义）
-            $failed = (int)$u['failed_count'] + 1;
-            $upd = ['failed_count' => $failed];
-            if ($failed >= 5) { $upd['locked_until'] = date('Y-m-d H:i:s', time() + 900); }
-            Database::update('users', $upd, 'id=?', [$u['id']]);
             return [false, '账号或密码不正确'];
         }
         if (!empty($u['totp_secret'])) {
             return [false, '该账号已开启两步验证，请从后台登录入口登录'];
         }
-        // 仅放行绑定咨询师档案的账号（普通管理员不得经前台登录）
-        $csl = Database::fetch('SELECT id FROM counselors WHERE user_id=? AND status=1', [(int)$u['id']]);
-        if (!$csl) {
-            return [false, '该账号为后台管理账号，请从后台登录入口登录'];
+        Session::start();
+        if (session_status() !== PHP_SESSION_ACTIVE || !session_regenerate_id(true)) {
+            return [false, '会话创建失败，请重试'];
         }
         $ip = $req->ip();
         Database::update('users', [
@@ -95,7 +91,6 @@ class Member
                 'httponly' => true, 'secure' => $req->isSecure(),
             ]);
         }
-        session_regenerate_id(true);
         return [true, ''];
     }
 
@@ -111,7 +106,7 @@ class Member
                 $error = '请求过于频繁';
             } else {
                 [$ok, $msg] = MemberService::register(
-                    (string)$req->post('phone', ''), (string)$req->post('password', ''),
+                    (string)$req->post('phone', ''), (string)$req->postRaw('password', ''),
                     (string)$req->post('name', ''), (string)$req->post('email', '')
                 );
                 if ($ok) { \app\Core\ResponseRedirect('/member'); }
@@ -130,7 +125,7 @@ class Member
             Csrf::guard();
             $act = (string)$req->post('act', '');
             if ($act === 'password') {
-                [$ok, $msg] = MemberService::changePassword($m, (string)$req->post('old_password', ''), (string)$req->post('new_password', ''));
+                [$ok, $msg] = MemberService::changePassword($m, (string)$req->postRaw('old_password', ''), (string)$req->postRaw('new_password', ''));
             } elseif ($act === 'email') {
                 [$ok, $msg] = MemberService::updateEmail($m, (string)$req->post('email', ''));
             } elseif ($act === 'prefs') {
@@ -323,7 +318,7 @@ class Member
         Csrf::guard();
         header('Content-Type: application/json; charset=utf-8');
         [$ok, $msg] = \app\Services\MemberService::sendPasswordResetSms((string)$req->post('phone', ''));
-        json_out(['ok' => $ok, 'message' => $msg]);
+        json_out(['ok' => $ok, 'error' => $ok ? '' : $msg, 'message' => $msg]);
     }
 
     /** v2.14.0：短信重置密码（校验验证码+改密） */
@@ -331,7 +326,7 @@ class Member
     {
         Csrf::guard();
         [$ok, $msg] = \app\Services\MemberService::resetPasswordBySms(
-            (string)$req->post('phone', ''), (string)$req->post('sms_code', ''), (string)$req->post('new_password', ''));
+            (string)$req->post('phone', ''), (string)$req->post('sms_code', ''), (string)$req->postRaw('new_password', ''));
         \app\Core\Session::flash($ok ? 'success' : 'error', $msg);
         \app\Core\ResponseRedirect($ok ? '/member/login' : '/member/forgot-password');
     }
@@ -343,7 +338,7 @@ class Member
         $error = '';
         if ($req->isPost()) {
             \app\Core\Csrf::guard();
-            [$ok, $msg] = MemberService::resetPassword((string)$req->post('token', ''), (string)$req->post('new_password', ''));
+            [$ok, $msg] = MemberService::resetPassword((string)$req->post('token', ''), (string)$req->postRaw('new_password', ''));
             if ($ok) {
                 \app\Core\Session::flash('success', $msg);
                 \app\Core\ResponseRedirect('/member/login');

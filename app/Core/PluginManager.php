@@ -156,6 +156,7 @@ class PluginManager
     public static function saveSettings(string $slug, array $post): int
     {
         $meta = self::get($slug);
+        $full = !empty($post['_full_settings']);
         $writes = [];
         $values = [];
         foreach ($meta['settings'] ?? [] as $f) {
@@ -169,6 +170,7 @@ class PluginManager
             $pk = str_replace('.', '_', $key);
             $type = (string)($f['type'] ?? 'text');
             if ($type === 'switch') {
+                if (!$full && !array_key_exists($pk, $post)) continue;
                 $val = !empty($post[$pk]) ? '1' : '0';
             } else {
                 if (!array_key_exists($pk, $post)) continue;

@@ -1,6 +1,4 @@
 <?php /** 会员登录 · 微信优先 + 密码登录（v2.16.0：去掉预约号登录） */
-$hubMode = (string)setting('wxhub.mode', 'direct') === 'hub';
-$wxReady = \app\Services\MemberService::current() !== null; // placeholder
 $inWx = stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'MicroMessenger') !== false;
 ?>
 <div class="container member-wrap">
@@ -8,6 +6,9 @@ $inWx = stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'MicroMessenger') !== false;
     <h1>会员中心</h1>
     <p class="muted">登录后可管理预约、查看测评记录、导出个人数据</p>
     <?php if (!empty($error)): ?><div class="alert alert-error"><?= e($error) ?></div><?php endif; ?>
+    <?php foreach (($flashes ?? []) as $flash): ?>
+      <div class="alert alert-<?= e((string)($flash['type'] ?? 'error')) ?>"><?= e((string)($flash['msg'] ?? '')) ?></div>
+    <?php endforeach; ?>
 
     <?php /* ===== 微信登录（主入口，PC 扫码 / 微信内一键） ===== */ ?>
     <div class="wx-login-section">

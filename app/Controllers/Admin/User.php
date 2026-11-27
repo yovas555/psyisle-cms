@@ -39,7 +39,7 @@ class User extends Base
             if ($mode === 'update') {
                 self::assertNotReused((int)$id, $pwd);
             }
-            $data['password_hash'] = password_hash($pwd, PASSWORD_DEFAULT);
+            $data['password_hash'] = password_hash($pwd, PASSWORD_BCRYPT);
             if ($mode === 'update') {
                 self::pushPasswordHistory((int)$id);
             }
@@ -142,8 +142,8 @@ class User extends Base
     {
         Csrf::guard();
         $me = Session::get('admin_user');
-        $old = (string)$req->post('old_password', '');
-        $new = (string)$req->post('new_password', '');
+        $old = (string)$req->postRaw('old_password', '');
+        $new = (string)$req->postRaw('new_password', '');
         $u = Database::fetch('SELECT * FROM users WHERE id=?', [$me['id']]);
         if (!$u || !password_verify($old, (string)$u['password_hash'])) {
             Session::flash('error', '原密码不正确');
@@ -152,8 +152,19 @@ class User extends Base
         try { self::assertStrongPassword($new); }
         catch (\RuntimeException $e) { Session::flash('error', $e->getMessage()); \app\Core\ResponseRedirect('/admin/users'); }
         self::assertNotReused((int)$u['id'], $new);
-        self::pushPasswordHistory((int)$u['id']);
-        Database::update('users', ['password_hash' => password_hash($new, PASSWORD_DEFAULT)], 'id=?', [$u['id']]);
+        try {
+            $saved = Database::transaction(function () use ($u, $new): bool {
+                self::pushPasswordHistory((int)$u['id']);
+                $stmt = Database::run('UPDATE users SET password_hash=? WHERE id=?', [password_hash($new, PASSWORD_BCRYPT), (int)$u['id']]);
+                if ($stmt->rowCount() !== 1) return false;
+                $hash = (string)Database::value('SELECT password_hash FROM users WHERE id=?', [(int)$u['id']]);
+                return password_verify($new, $hash);
+            });
+            if (!$saved) throw new \RuntimeException('password update did not persist');
+        } catch (\Throwable $e) {
+            Session::flash('error', '密码保存失败，请重试');
+            \app\Core\ResponseRedirect('/admin/users');
+        }
         $this->audit('user.password');
         Session::flash('success', '密码已修改');
         \app\Core\ResponseRedirect('/admin/users');

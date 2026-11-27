@@ -17,12 +17,12 @@ class RateLimiter
     {
         $key = 'rl:' . $bucket . ':' . hash('sha256', $id);
         $now = microtime(true);
-        $list = Cache::get($key);
-        if (!is_array($list)) $list = [];
-        $list = array_values(array_filter($list, fn($t) => $t > $now - $windowSec));
-        if (count($list) >= $max) { return false; }
-        $list[] = $now;
-        Cache::set($key, $list, $windowSec + 10);
-        return true;
+        return Cache::mutateIf($key, $windowSec + 10, static function (&$list) use ($now, $windowSec, $max): bool {
+            if (!is_array($list)) $list = [];
+            $list = array_values(array_filter($list, fn($t) => $t > $now - $windowSec));
+            if (count($list) >= $max) return false;
+            $list[] = $now;
+            return true;
+        });
     }
 }

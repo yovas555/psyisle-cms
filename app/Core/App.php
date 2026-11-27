@@ -88,7 +88,7 @@ class App
         // ===== 会员自助中心（独立会话域 member_user）=====
         $r->get('/member/login', 'Member@login');
         $r->post('/member/login', 'Member@login');
-        $r->post('/member/login/send-code', 'Member@sendCode'); // 手机验证码（微信绑定/密码找回用，非登录）
+        $r->post('/member/login/send-code', 'Member@sendCode'); // 手机验证码（微信绑定用，非登录、非密码找回）
         $r->get('/member/register', 'Member@register');
         $r->post('/member/register', 'Member@register');
         $r->get('/member/settings', 'Member@settings');

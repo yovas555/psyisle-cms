@@ -37,6 +37,11 @@ class Request
         return $v;
     }
 
+    public function postRaw(string $key, $default = null)
+    {
+        return $_POST[$key] ?? $default;
+    }
+
     public function posts(): array { return $_POST; }
 
     public function ip(): string

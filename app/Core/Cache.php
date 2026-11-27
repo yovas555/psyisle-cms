@@ -47,6 +47,64 @@ class Cache
         @unlink(self::file($key));
     }
 
+    public static function consumeIf(string $key, callable $predicate): bool
+    {
+        $f = self::file($key);
+        if (!is_file($f)) return false;
+        $fp = @fopen($f, 'c+');
+        if (!$fp) return false;
+        try {
+            if (!flock($fp, LOCK_EX)) return false;
+            $data = @unserialize((string)stream_get_contents($fp));
+            if (!is_array($data) || !isset($data['expire'], $data['value'])) return false;
+            if ($data['expire'] > 0 && $data['expire'] < time()) {
+                rewind($fp);
+                ftruncate($fp, 0);
+                fwrite($fp, serialize(['expire' => time() - 1, 'value' => null]));
+                fflush($fp);
+                return false;
+            }
+            if (!$predicate($data['value'])) return false;
+            rewind($fp);
+            ftruncate($fp, 0);
+            fwrite($fp, serialize(['expire' => time() - 1, 'value' => null]));
+            fflush($fp);
+            return true;
+        } finally {
+            flock($fp, LOCK_UN);
+            fclose($fp);
+        }
+    }
+
+    public static function mutateIf(string $key, int $ttl, callable $mutator): bool
+    {
+        $f = self::file($key);
+        $existed = is_file($f);
+        $fp = @fopen($f, 'c+');
+        if (!$fp) return false;
+        try {
+            if (!flock($fp, LOCK_EX)) return false;
+            $data = @unserialize((string)stream_get_contents($fp));
+            $value = null;
+            if (is_array($data) && isset($data['expire'], $data['value'])
+                && ($data['expire'] === 0 || $data['expire'] >= time())) {
+                $value = $data['value'];
+            }
+            if (!$mutator($value)) {
+                if (!$existed) @unlink($f);
+                return false;
+            }
+            rewind($fp);
+            ftruncate($fp, 0);
+            fwrite($fp, serialize(['expire' => $ttl > 0 ? time() + $ttl : 0, 'value' => $value]));
+            fflush($fp);
+            return true;
+        } finally {
+            flock($fp, LOCK_UN);
+            fclose($fp);
+        }
+    }
+
     /**
      * remember（v2.18 防击穿）：并发首个过期时只允许一个进程回源计算，
      * 其余进程持锁等待最多 2 秒后复读；拿不到锁的进程自行计算（降级不阻塞）。

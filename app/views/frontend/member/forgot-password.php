@@ -4,6 +4,9 @@
     <h1>忘记密码</h1>
     <p class="muted">通过邮箱或短信验证码重置密码</p>
     <?php if (!empty($error)): ?><div class="alert alert-error"><?= e($error) ?></div><?php endif; ?>
+    <?php foreach (($flashes ?? []) as $flash): ?>
+      <div class="alert alert-<?= e((string)($flash['type'] ?? 'error')) ?>"><?= e((string)($flash['msg'] ?? '')) ?></div>
+    <?php endforeach; ?>
     <div class="member-tabs">
       <button type="button" class="member-tab active" data-tab="email">邮箱重置</button>
       <button type="button" class="member-tab" data-tab="sms">短信重置</button>
@@ -50,10 +53,11 @@ document.addEventListener('click', function (e) {
   var phone = (document.getElementById('smsPhone') || {}).value || '';
   if (!/^1[3-9]\d{9}$/.test(phone)) { alert('请先填写正确的手机号'); return; }
   btn.disabled = true; btn.textContent = '发送中…';
-  fetch('<?= url('/member/login/send-code') ?>', { method: 'POST', body: 'phone=' + encodeURIComponent(phone) + '&_token=' + encodeURIComponent(document.querySelector('input[name=_token]').value), headers: {'Content-Type':'application/x-www-form-urlencoded'}, credentials: 'same-origin' })
+  fetch('<?= url('/member/forgot-password/sms') ?>', { method: 'POST', body: 'phone=' + encodeURIComponent(phone) + '&_token=' + encodeURIComponent(document.querySelector('input[name=_token]').value), headers: {'Content-Type':'application/x-www-form-urlencoded'}, credentials: 'same-origin' })
     .then(function (r) { return r.json(); })
     .then(function (d) {
-      alert(d.ok ? (d.message || '已发送') : (d.error || '发送失败'));
+      alert(d.ok ? (d.message || '已发送') : (d.error || d.message || '发送失败'));
+      if (!d.ok) { btn.disabled = false; btn.textContent = '发送验证码'; return; }
       var n = 60; var timer = setInterval(function () {
         btn.textContent = '重发(' + (--n) + 's)';
         if (n <= 0) { clearInterval(timer); btn.disabled = false; btn.textContent = '发送验证码'; }
