@@ -32,7 +32,9 @@
         <span class="label">状态</span>
         <select name="status">
           <?php foreach (['pending' => '待确认', 'confirmed' => '已确认', 'rescheduled' => '已改期', 'completed' => '已完成', 'cancelled' => '已取消'] as $k => $v): ?>
+          <?php if ($b['status'] === $k || \app\Services\BookingLifecycle::canTransition((string)$b['status'], $k)): ?>
           <option value="<?= $k ?>" <?= $b['status'] === $k ? 'selected' : '' ?>><?= $v ?></option>
+          <?php endif; ?>
           <?php endforeach; ?>
         </select>
       </label>
@@ -42,10 +44,27 @@
       </label>
       <button class="btn btn-primary" type="submit">保存状态</button>
     </form>
-    <form method="post" action="/admin/bookings/delete/<?= (int)$b['id'] ?>" data-confirm="确认删除该预约？" style="margin-top:16px">
+    <?php if (in_array($b['status'], ['completed', 'cancelled'], true)): ?>
+    <form method="post" action="/admin/bookings/delete/<?= (int)$b['id'] ?>" data-confirm="确认删除该预约？状态台账将一并删除。" style="margin-top:16px">
       <?= csrf_field() ?>
       <button class="btn btn-danger" type="submit">删除预约</button>
     </form>
+    <?php endif; ?>
+  </div>
+
+  <div class="panel field-full">
+    <h2>状态台账</h2>
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>时间</th><th>变更</th><th>类型</th><th>操作者</th><th>备注</th></tr></thead>
+      <tbody>
+      <?php if (!$statusEvents): ?><tr><td colspan="5" class="empty">暂无状态变更记录</td></tr><?php endif; ?>
+      <?php foreach ($statusEvents as $event): ?>
+        <tr><td><?= e(dt((string)$event['created_at'])) ?></td><td><?= e((string)$event['from_status']) ?> → <?= e((string)$event['to_status']) ?></td><td><?= e((string)$event['event_type']) ?></td><td><?= e((string)$event['actor_name']) ?></td><td><?= e((string)($event['note'] ?: '—')) ?></td></tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table></div>
+    <?php $snapshot = json_decode((string)($b['rule_snapshot'] ?? ''), true); ?>
+    <p class="hint">下单规则快照：<?= $snapshot ? '捕获于 ' . e((string)$snapshot['captured_at']) . '；取消提前量 ' . (int)$snapshot['rules']['cancel_hours'] . ' 小时；渠道 ' . e((string)$snapshot['channel']) : '历史预约未回填快照，当前按站点规则执行' ?></p>
   </div>
 
 <div class="toolbar" style="margin-top:14px">

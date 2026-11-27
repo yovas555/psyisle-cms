@@ -12,6 +12,8 @@ use app\Core\Request;
 use app\Core\Session;
 use app\Core\Validator;
 use app\Core\View;
+use app\Services\BookingPricing;
+use app\Services\CounselorProfile;
 use app\Services\NotifyService;
 use app\Services\SeoService;
 use app\Services\StatsService;
@@ -28,10 +30,21 @@ class Booking
             \app\Core\Session::flash('error', '预约请先登录会员账号（预约与提醒、支付均在会员中心管理）');
             \app\Core\ResponseRedirect('/member/login');
         }
-        $services = Database::fetchAll('SELECT id, name, price_from, price_to FROM services WHERE status=1 ORDER BY sort');
-        $counselors = Database::fetchAll('SELECT id, name, title FROM counselors WHERE status=1 ORDER BY sort');
+        $services = BookingPricing::offeredServices();
+        $modesCol = self::hasModesColumn() ? ', service_modes' : '';
+        $counselors = Database::fetchAll('SELECT id, name, title' . $modesCol . ' FROM counselors WHERE status=1 ORDER BY sort');
         $preService = (int)$req->get('service', 0);
         $preCounselor = (int)$req->get('counselor', 0);
+        $counselorServices = [];
+        foreach ($services as $service) {
+            foreach (explode(',', (string)($service['counselor_ids'] ?? '')) as $relatedId) {
+                if ((int)$relatedId > 0) $counselorServices[(int)$relatedId][] = (int)$service['id'];
+            }
+        }
+        $preMethod = (string)$req->get('method', '');
+        if (!in_array($preMethod, CounselorProfile::MODES, true)) $preMethod = '';
+        if ($preCounselor > 0 && $preService > 0 && !BookingPricing::offered($preCounselor, $preService)) $preService = 0;
+        if ($preCounselor > 0 && !in_array($preCounselor, array_map('intval', array_column($counselors, 'id')), true)) $preCounselor = 0;
         // v2.8.0 插件扩展点：门店选择（stores-pro）/ EAP 上下文（eap-pro）注入表单
         $extras = \app\Core\Hook::fire('booking.form.extras', [
             'req' => $req, 'top_html' => '', 'html' => '',
@@ -41,8 +54,10 @@ class Booking
             'meta' => $meta,
             'services' => $services,
             'counselors' => $counselors,
+            'counselorServices' => $counselorServices,
             'preService' => $preService,
             'preCounselor' => $preCounselor,
+            'preMethod' => $preMethod,
             'source' => (string)$req->get('source', 'web'),
             'formTopExtras' => (string)($extras['top_html'] ?? ''),
             'formExtras' => (string)($extras['html'] ?? ''),
@@ -61,7 +76,8 @@ class Booking
             Session::flash('error', '请先选择咨询时段');
             \app\Core\ResponseRedirect('/booking');
         }
-        $c = Database::fetch('SELECT id, name, title, slug, avatar, introduction, fee_from, fee_to FROM counselors WHERE id=? AND status=1', [$cid]);
+        $modesCol = self::hasModesColumn() ? ', service_modes' : '';
+        $c = Database::fetch('SELECT id, name, title, slug, avatar, introduction, fee_from, fee_to' . $modesCol . ' FROM counselors WHERE id=? AND status=1', [$cid]);
         if (!$c) {
             Session::flash('error', '咨询师不存在或已停用');
             \app\Core\ResponseRedirect('/booking');
@@ -72,17 +88,50 @@ class Booking
             \app\Core\ResponseRedirect('/counselors/' . (string)$c['slug']);
         }
         $slotLabel = (string)$msgOrLabel;
-        $services = Database::fetchAll('SELECT id, name, price_from, price_to FROM services WHERE status=1 ORDER BY sort');
+        $services = BookingPricing::forCounselor($cid);
+        $preService = (int)$req->get('service', 0);
+        if ($preService > 0 && !BookingPricing::offered($cid, $preService)) $preService = 0;
+        $allowedModes = \app\Services\CounselorProfile::modes($c['service_modes'] ?? '');
+        $requestedMethod = (string)$req->get('method', '');
+        $preMethod = $requestedMethod !== '' && \app\Services\CounselorProfile::allows($c, $requestedMethod)
+            ? $requestedMethod
+            : ((!$allowedModes || in_array('面对面', $allowedModes, true)) ? '面对面' : $allowedModes[0]);
+        [$methodOk, $methodMessage] = \app\Services\BookingSlots::checkAvailable($cid, $date, $start, $preMethod);
+        if (!$methodOk) {
+            Session::flash('error', $methodMessage);
+            \app\Core\ResponseRedirect('/counselors/' . (string)$c['slug']);
+        }
+        $slotMethods = [];
+        foreach ($allowedModes ?: \app\Services\CounselorProfile::MODES as $mode) {
+            [$modeOk] = \app\Services\BookingSlots::checkAvailable($cid, $date, $start, $mode);
+            if ($modeOk) $slotMethods[] = $mode;
+        }
+        if (!in_array($preMethod, $slotMethods, true)) {
+            Session::flash('error', '该时段不支持所选咨询方式，请重新选择');
+            \app\Core\ResponseRedirect('/counselors/' . (string)$c['slug']);
+        }
+        $slotStoreId = 0;
+        foreach (\app\Services\BookingSlots::slotsFor($cid, $date, true, $preMethod)['slots'] as $slot) {
+            if ($slot['start'] === $start && $slot['available']) {
+                $slotStoreId = (int)$slot['store_id'];
+                break;
+            }
+        }
+        $servicePrices = [];
+        foreach ($services as $service) {
+            $servicePrices[(int)$service['id']] = BookingPricing::priceCents($cid, $date, $slotLabel, (int)$service['id']);
+        }
         $mCur = \app\Services\MemberService::current();
         if (!$mCur && (bool)setting('booking.require_member', '1')) {
-            \app\Core\Session::set('member_return', '/booking/confirm?counselor=' . $cid . '&date=' . urlencode($date) . '&start=' . urlencode($start));
+            \app\Core\Session::set('member_return', '/booking/confirm?counselor=' . $cid . '&date=' . urlencode($date) . '&start=' . urlencode($start) . ($preService > 0 ? '&service=' . $preService : '') . '&method=' . urlencode($preMethod));
             \app\Core\Session::flash('error', '预约请先登录会员账号（预约与提醒、支付均在会员中心管理）');
             \app\Core\ResponseRedirect('/member/login');
         }
         // 价格预览（视频=在线支付；fee_override 分时价优先）
-        $feeCents = \app\Services\BookingSlots::slotPriceCents($cid, $date, $slotLabel);
+        $genericFeeCents = BookingPricing::priceCents($cid, $date, $slotLabel);
+        $feeCents = BookingPricing::priceCents($cid, $date, $slotLabel, $preService);
         $extras = \app\Core\Hook::fire('booking.form.extras', [
-            'req' => $req, 'top_html' => '', 'html' => '',
+            'req' => $req, 'top_html' => '', 'html' => '', 'slot_store_id' => $slotStoreId,
         ]);
         $meta = SeoService::meta('预约确认', '确认咨询时段并提交预约', '预约确认,心理咨询', url('/booking'));
         View::render('booking/confirm', [
@@ -90,7 +139,12 @@ class Booking
             'c' => $c, 'date' => $date, 'slotLabel' => $slotLabel,
             'slotStart' => $start,
             'feeCents' => $feeCents,
+            'genericFeeCents' => $genericFeeCents,
             'services' => $services,
+            'preService' => $preService,
+            'preMethod' => $preMethod,
+            'slotMethods' => $slotMethods,
+            'servicePrices' => $servicePrices,
             'member' => $mCur,
             'week' => '周' . mb_substr('一二三四五六日', (int)date('N', strtotime($date)) - 1, 1),
             'formTopExtras' => (string)($extras['top_html'] ?? ''),
@@ -125,7 +179,9 @@ class Booking
             Session::flash('error', $v->firstError() ?: '验证码不正确');
             if ((string)($data['booking_mode'] ?? '') === 'slot') {
                 \app\Core\ResponseRedirect('/booking/confirm?counselor=' . (int)($data['counselor_id'] ?? 0)
-                    . '&date=' . urlencode((string)($data['prefer_date'] ?? '')) . '&start=' . urlencode((string)($data['slot_start'] ?? '')));
+                    . '&date=' . urlencode((string)($data['prefer_date'] ?? '')) . '&start=' . urlencode((string)($data['slot_start'] ?? ''))
+                    . ((int)($data['service_id'] ?? 0) > 0 ? '&service=' . (int)$data['service_id'] : '')
+                    . '&method=' . urlencode((string)($data['method'] ?? '')));
             }
             \app\Core\ResponseRedirect('/booking');
         }
@@ -137,8 +193,46 @@ class Booking
             Session::flash('error', '未成年人预约需勾选监护人知情同意');
             \app\Core\ResponseRedirect('/booking');
         }
+        $counselorId = (int)($data['counselor_id'] ?? 0);
+        $modesCol = self::hasModesColumn() ? ', service_modes' : '';
+        $counselor = $counselorId > 0
+            ? Database::fetch('SELECT id, name' . $modesCol . ' FROM counselors WHERE id=? AND status=1', [$counselorId])
+            : null;
+        if ($counselorId > 0 && !$counselor) {
+            Session::flash('error', '咨询师不存在或已停用，请重新选择');
+            \app\Core\ResponseRedirect('/booking');
+        }
+        $method = (string)($data['method'] ?? '');
+        if ($counselor && !CounselorProfile::allows($counselor, $method)) {
+            Session::flash('error', '该咨询师不提供' . $method . '咨询，请选择其支持的服务方式');
+            $return = '/booking?counselor=' . $counselorId . '&source=counselor';
+            if ((int)($data['service_id'] ?? 0) > 0) $return .= '&service=' . (int)$data['service_id'];
+            \app\Core\ResponseRedirect($return);
+        }
+        $serviceId = (int)($data['service_id'] ?? 0);
+        if ($serviceId > 0) {
+            if ($counselor && !BookingPricing::offered($counselorId, $serviceId)) {
+                Session::flash('error', '该咨询师不提供所选服务，请重新选择');
+                \app\Core\ResponseRedirect('/booking?counselor=' . $counselorId . '&source=counselor');
+            }
+            if (!$counselor) {
+                $offeredIds = array_map('intval', array_column(BookingPricing::offeredServices(), 'id'));
+                if (!in_array($serviceId, $offeredIds, true)) {
+                    Session::flash('error', '该服务当前没有可预约的咨询师，请重新选择');
+                    \app\Core\ResponseRedirect('/booking');
+                }
+            }
+        }
         // v2.17.0：槽位预约（确认页提交）——精确时段校验 + 标准化 prefer_slot「HH:MM-HH:MM」
         $isSlotMode = (string)($data['booking_mode'] ?? '') === 'slot';
+        if (!$isSlotMode && $counselor && preg_match('/^\d{2}:\d{2}-\d{2}:\d{2}$/', trim((string)($data['prefer_slot'] ?? '')))) {
+            Session::flash('error', '固定时段请从咨询师日历选择；预约申请请用文字描述其他期望时间');
+            \app\Core\ResponseRedirect('/booking?counselor=' . $counselorId . '&source=counselor');
+        }
+        if ($isSlotMode && !$counselor) {
+            Session::flash('error', '咨询师不存在或已停用，请重新选择时段');
+            \app\Core\ResponseRedirect('/counselors');
+        }
         if ($isSlotMode) {
             $cidS = (int)($data['counselor_id'] ?? 0);
             $dateS = (string)($data['prefer_date'] ?? '');
@@ -147,12 +241,19 @@ class Booking
                 Session::flash('error', '预约信息不完整，请从咨询师日历重新选择时段');
                 \app\Core\ResponseRedirect('/booking');
             }
-            [$okS, $msgOrLabelS] = \app\Services\BookingSlots::checkAvailable($cidS, $dateS, $startS);
+            [$okS, $msgOrLabelS] = \app\Services\BookingSlots::checkAvailable($cidS, $dateS, $startS, $method);
             if (!$okS) {
                 Session::flash('error', $msgOrLabelS);
                 \app\Core\ResponseRedirect('/booking?counselor=' . $cidS . '&source=counselor');
             }
             $data['prefer_slot'] = (string)$msgOrLabelS; // 「HH:MM-HH:MM」
+            $data['slot_store_id'] = 0;
+            foreach (\app\Services\BookingSlots::slotsFor($cidS, $dateS, true, $method)['slots'] as $slot) {
+                if ($slot['start'] === $startS && $slot['available']) {
+                    $data['slot_store_id'] = (int)$slot['store_id'];
+                    break;
+                }
+            }
         }
 
         $code = gen_code(8);
@@ -173,7 +274,7 @@ class Booking
         if (mb_stripos((string)($data['method'] ?? ''), '视频') !== false) {
             $cidP = (int)($data['counselor_id'] ?? 0);
             $amountCents = $cidP > 0
-                ? \app\Services\BookingSlots::slotPriceCents($cidP, (string)($data['prefer_date'] ?? ''), (string)($data['prefer_slot'] ?? ''))
+                ? BookingPricing::priceCents($cidP, (string)($data['prefer_date'] ?? ''), (string)($data['prefer_slot'] ?? ''), $serviceId)
                 : null;
             if ($amountCents === null || $amountCents <= 0) { $payStatus = 'free'; } // 咨询师未定价 → 免费占位（线下沟通）
             else { $payStatus = 'unpaid'; }
@@ -181,33 +282,53 @@ class Booking
         // v2.17.0 用户拍板：可用时段内的预约**免机构确认**——无需支付的（面对面/电话/未定价）提交即确认；
         // 需在线支付的先 pending，支付成功后由 wechat-pay 自动确认（applyCredit）
         $autoConfirmed = $isSlotMode && $payStatus === 'free';
-        $id = Database::insert('bookings', array_merge([
-            'code' => $code,
-            'service_id' => (int)($data['service_id'] ?? 0) ?: null,
-            'counselor_id' => (int)($data['counselor_id'] ?? 0) ?: null,
-            'name' => (string)$data['name'],
-            'gender' => in_array(($data['gender'] ?? ''), ['1','2'], true) ? (int)$data['gender'] : null,
-            'age_range' => mb_substr((string)($data['age_range'] ?? ''), 0, 19),
-            'phone' => (string)$data['phone'],
-            'email' => mb_substr((string)($data['email'] ?? ''), 0, 119),
-            'wechat' => mb_substr((string)($data['wechat'] ?? ''), 0, 59),
-            'method' => mb_substr((string)($data['method'] ?? ''), 0, 19),
-            'prefer_date' => $data['prefer_date'] ?: null,
-            'prefer_slot' => mb_substr((string)($data['prefer_slot'] ?? ''), 0, 59),
-            'issue' => mb_substr((string)($data['issue'] ?? ''), 0, 999),
-            'urgency' => !empty($data['urgency']) ? 1 : 0,
-            'status' => $autoConfirmed ? 'confirmed' : 'pending',
-            // v2.13.0：线上咨询定价与支付状态（面对面/电话默认 free 线下结算；视频按时段价在线支付）
-            'amount_cents' => $amountCents,
-            'pay_status' => $payStatus,
-            'source' => in_array(($data['source'] ?? ''), ['assessment', 'chat', 'counselor', 'slot'], true)
-                ? (string)$data['source'] : 'web',
-            'ip' => $req->ip(),
-            'created_at' => date('Y-m-d H:i:s'),
-        ], is_array($extra['fields'] ?? null) ? $extra['fields'] : []));
+        $insertBooking = static function () use ($data, $extra, $code, $amountCents, $payStatus, $autoConfirmed, $req): int {
+            return Database::insert('bookings', array_merge([
+                'code' => $code,
+                'service_id' => (int)($data['service_id'] ?? 0) ?: null,
+                'counselor_id' => (int)($data['counselor_id'] ?? 0) ?: null,
+                'name' => (string)$data['name'],
+                'gender' => in_array(($data['gender'] ?? ''), ['1','2'], true) ? (int)$data['gender'] : null,
+                'age_range' => mb_substr((string)($data['age_range'] ?? ''), 0, 19),
+                'phone' => (string)$data['phone'],
+                'email' => mb_substr((string)($data['email'] ?? ''), 0, 119),
+                'wechat' => mb_substr((string)($data['wechat'] ?? ''), 0, 59),
+                'method' => mb_substr((string)($data['method'] ?? ''), 0, 19),
+                'prefer_date' => $data['prefer_date'] ?: null,
+                'prefer_slot' => mb_substr((string)($data['prefer_slot'] ?? ''), 0, 59),
+                'issue' => mb_substr((string)($data['issue'] ?? ''), 0, 999),
+                'urgency' => !empty($data['urgency']) ? 1 : 0,
+                'status' => $autoConfirmed ? 'confirmed' : 'pending',
+                // v2.13.0：线上咨询定价与支付状态（面对面/电话默认 free 线下结算；视频按时段价在线支付）
+                'amount_cents' => $amountCents,
+                'pay_status' => $payStatus,
+                'source' => in_array(($data['source'] ?? ''), ['assessment', 'chat', 'counselor', 'slot'], true)
+                    ? (string)$data['source'] : 'web',
+                'ip' => $req->ip(),
+                'created_at' => date('Y-m-d H:i:s'),
+            ], is_array($extra['fields'] ?? null) ? $extra['fields'] : []));
+        };
+        if ($isSlotMode) {
+            [$okS, $msgOrLabelS, $id] = \app\Services\BookingSlots::reserve(
+                (int)$data['counselor_id'], (string)$data['prefer_date'], (string)$data['slot_start'],
+                static function (string $label) use ($data, $insertBooking): int {
+                    $data['prefer_slot'] = $label;
+                    return $insertBooking();
+                },
+                $serviceId,
+                $method
+            );
+            if (!$okS) {
+                Session::flash('error', $msgOrLabelS);
+                \app\Core\ResponseRedirect('/booking?counselor=' . (int)$data['counselor_id'] . '&source=counselor');
+            }
+        } else {
+            $id = $insertBooking();
+        }
+        \app\Services\BookingLifecycle::ensureSnapshot((int)$id);
 
         // 通知管理员（紧急时高优先）
-        $svc = $id && $data['service_id'] ? Database::fetch('SELECT name FROM services WHERE id=?', [(int)$data['service_id']]) : null;
+        $svc = $id && $serviceId ? Database::fetch('SELECT name FROM services WHERE id=?', [$serviceId]) : null;
         $csl = $id && $data['counselor_id'] ? Database::fetch('SELECT name FROM counselors WHERE id=?', [(int)$data['counselor_id']]) : null;
         $body = sprintf(
             "姓名：%s\n手机：%s\n服务：%s\n咨询师：%s\n期望日期：%s %s\n方式：%s\n主诉：%s\n查询码：%s",
@@ -275,7 +396,7 @@ class Booking
         } elseif ((int)$notifyMid > 0) {
             \app\Services\MemberNotifyService::push((int)$notifyMid, $notifyEvent, $notifyData);
         }
-        if ((int)($data['counselor_id'] ?? 0) > 0) {
+        if ((int)($data['counselor_id'] ?? 0) > 0 && $payStatus !== 'unpaid') {
             \app\Services\CounselorNotifyService::push((int)$data['counselor_id'], $notifyEvent, [
                 'title' => ($autoConfirmed ? '预约成功（免确认）' : '新预约') . '：' . (string)$data['name'] . '（' . mask_phone((string)$data['phone']) . '）',
                 'body' => ($data['prefer_date'] ?: '待定') . ' ' . ($data['prefer_slot'] ?? '') . ' · ' . ($data['method'] ?? ''),
@@ -312,32 +433,49 @@ class Booking
             'crumbs' => ['首页' => url('/'), '预约咨询' => url('/booking'), '提交成功' => '']]);
     }
 
+    public function prepare(Request $req, array $p): void
+    {
+        $meta = SeoService::meta('咨询前准备', '了解首次咨询的准备事项、取消改期规则与危机支持。', '', url('/booking/prepare'));
+        View::render('booking/prepare', [
+            'meta' => $meta,
+            'crumbs' => ['首页' => url('/'), '预约咨询' => url('/booking'), '咨询前准备' => ''],
+        ]);
+    }
+
     /** AJAX：某咨询师某日期的可约时段（v2.17.0 走统一槽位服务：切片/例外/请假/占用/提前截止） */
     public function slots(Request $req, array $p): void
     {
         $cid = (int)$req->get('counselor_id', 0);
         $date = (string)$req->get('date', '');
-        if ($cid <= 0 || $date === '' || strtotime($date) === false) {
-            json_out(['ok' => false, 'slots' => []]);
+        $method = (string)$req->get('method', '');
+        if ($cid <= 0 || $date === '' || strtotime($date) === false || !in_array($method, \app\Services\CounselorProfile::MODES, true)) {
+            json_out(['ok' => false, 'slots' => [], 'msg' => '咨询方式不正确']);
         }
         if (strtotime($date) < strtotime(date('Y-m-d'))) {
             json_out(['ok' => true, 'slots' => [], 'msg' => '日期已过期']);
         }
-        $day = \app\Services\BookingSlots::slotsFor($cid, $date);
-        // 兼容旧消费方：slots 为「HH:MM-HH:MM」字符串数组（含已占/不可约——与旧口径一致按模板给全量）
+        $day = \app\Services\BookingSlots::slotsFor($cid, $date, true, $method);
         $legacy = [];
-        foreach ($day['slots'] as $s) { $legacy[] = $s['label']; }
-        // v2.5.0 排班钩子保留（schedule-pro 幂等增强）
-        $legacy = \app\Core\Hook::fire('booking.slots', ['counselor_id' => $cid, 'date' => $date, 'slots' => $legacy])['slots'] ?? $legacy;
+        foreach ($day['slots'] as $s) { if ($s['available']) $legacy[] = $s['label']; }
         json_out([
             'ok' => true,
             'slots' => $legacy,
             'slots_full' => array_map(fn($s) => [
                 'label' => $s['label'], 'start' => $s['start'], 'end' => $s['end'], 'available' => $s['available'],
+                'service_mode' => $s['service_mode'] ?? 'all', 'store_id' => (int)($s['store_id'] ?? 0),
             ], $day['slots']),
             'leave' => $day['leave'], 'closed_note' => $day['closed_note'],
             'confirm_url' => url('/booking/confirm'),
         ]);
+    }
+
+    private static function hasModesColumn(): bool
+    {
+        static $has = null;
+        if ($has === null) {
+            $has = in_array('service_modes', array_column(Database::fetchAll('SHOW COLUMNS FROM counselors'), 'Field'), true);
+        }
+        return $has;
     }
 
     /** 凭码查询进度 */

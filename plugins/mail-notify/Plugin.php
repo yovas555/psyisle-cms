@@ -98,13 +98,23 @@ final class Plugin
         [$inQuiet, $deliverAt] = \app\Core\QuietHours::resolve($type);
         $scheduledAt = date('Y-m-d H:i:s', $deliverAt);
 
+        $accepted = 0;
         if ($urgent && !$inQuiet && Mailer::enabled()) {
-            $allOk = true;
+            $failedRecipients = [];
             foreach ($recipients as $rcpt) {
                 [$ok, $err] = Mailer::send($rcpt, $subject, $html);
-                if (!$ok) { $allOk = false; Logger::error('mail-notify', "urgent to {$rcpt} failed: " . $err); }
+                if (!$ok) {
+                    $failedRecipients[] = $rcpt;
+                    Logger::error('mail-notify', "urgent to {$rcpt} failed: " . $err);
+                } else {
+                    $accepted++;
+                }
             }
-            if ($allOk) return $ctx;
+            if (!$failedRecipients) {
+                $ctx['mail_notify_accepted'] = $accepted;
+                return $ctx;
+            }
+            $recipients = $failedRecipients;
         }
         // 入队（免打扰/SMTP 未配置/直发失败都会保留，到点自动发出）
         foreach ($recipients as $rcpt) {
@@ -115,10 +125,12 @@ final class Plugin
                     'scheduled_at' => $scheduledAt, 'attempts' => 0,
                     'created_at' => date('Y-m-d H:i:s'),
                 ]);
+                $accepted++;
             } catch (\Throwable $t) {
                 Logger::error('mail-notify', 'enqueue failed: ' . $t->getMessage());
             }
         }
+        $ctx['mail_notify_accepted'] = $accepted;
         if ($inQuiet) {
             Logger::info('mail-notify', "quiet hours: {$type} deferred to {$scheduledAt}");
         }

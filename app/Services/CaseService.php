@@ -35,18 +35,28 @@ class CaseService
             return self::fail('仅可为与您有过预约的来访者开案');
         }
 
-        $bookingId = (int)($in['booking_id'] ?? 0) ?: null;
-        if ($bookingId !== null && !Database::value(
-            'SELECT id FROM bookings WHERE id=? AND counselor_id=? AND phone=(SELECT phone FROM members WHERE id=?)',
-            [$bookingId, $counselorId, $memberId]
-        )) {
-            $bookingId = null; // 关联预约对不上就丢弃，不阻断开案
+        $bookingId = null;
+        $bookingRaw = $in['booking_id'] ?? null;
+        if ($bookingRaw !== null && $bookingRaw !== '' && $bookingRaw !== 0 && $bookingRaw !== '0') {
+            if (!is_scalar($bookingRaw)) throw new \InvalidArgumentException('关联预约编号不合法');
+            if (trim((string)$bookingRaw) !== '') {
+                $bookingId = filter_var($bookingRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if ($bookingId === false) throw new \InvalidArgumentException('关联预约编号不合法');
+                $bookingId = (int)$bookingId;
+            }
         }
 
         try {
             $id = Database::transaction(function () use ($counselorId, $memberId, $title, $in, $bookingId) {
-                // 锁住会员行：并发开案时只有一个能通过下面的 active 检查
                 Database::run('SELECT id FROM members WHERE id=? FOR UPDATE', [$memberId]);
+                if ($bookingId !== null) {
+                    $booking = Database::fetch(
+                        'SELECT b.* FROM bookings b JOIN members m ON m.phone=b.phone
+                         WHERE b.id=? AND b.counselor_id=? AND m.id=? FOR UPDATE',
+                        [$bookingId, $counselorId, $memberId]
+                    );
+                    if (!$booking) throw new \InvalidArgumentException('关联预约不存在或不属于该来访者与咨询师');
+                }
                 $active = Database::fetch(
                     "SELECT id, case_no FROM cases WHERE member_id=? AND status='active' LIMIT 1",
                     [$memberId]
@@ -72,6 +82,8 @@ class CaseService
                     'updated_at' => date('Y-m-d H:i:s'),
                 ]);
             });
+        } catch (\InvalidArgumentException $e) {
+            throw $e;
         } catch (\RuntimeException $e) {
             return self::fail($e->getMessage());
         } catch (\Throwable $t) {
@@ -84,60 +96,83 @@ class CaseService
     /** 结案 */
     public static function close(int $caseId, int $counselorId, string $reason): array
     {
-        $case = Database::fetch('SELECT * FROM cases WHERE id=?', [$caseId]);
-        if (!$case) return self::fail('个案不存在');
-        if (!CasePolicy::owns($case, $counselorId)) return self::fail('无权操作该个案');
-        if (!CasePolicy::canTransition((string)$case['status'], 'closed')) {
-            return self::fail('当前状态不可结案（' . CasePolicy::statusLabel((string)$case['status']) . '）');
-        }
-        Database::transaction(function () use ($caseId, $reason) {
-            Database::run('SELECT id FROM cases WHERE id=? FOR UPDATE', [$caseId]);
-            Database::run(
-                "UPDATE cases SET status='closed', closed_at=NOW(), close_reason=?, updated_at=NOW() WHERE id=? AND status='active'",
-                [str_take(trim($reason), 200, ''), $caseId]
+        return Database::transaction(function () use ($caseId, $counselorId, $reason): array {
+            $case = Database::fetch('SELECT * FROM cases WHERE id=? FOR UPDATE', [$caseId]);
+            if (!$case) return self::fail('个案不存在');
+            if (!CasePolicy::owns($case, $counselorId)) return self::fail('无权操作该个案');
+            if (!CasePolicy::canTransition((string)$case['status'], 'closed')) {
+                return self::fail('当前状态不可结案（' . CasePolicy::statusLabel((string)$case['status']) . '）');
+            }
+            $changed = Database::run(
+                "UPDATE cases SET status='closed', closed_at=NOW(), close_reason=?, updated_at=NOW() WHERE id=? AND counselor_id=? AND status='active'",
+                [str_take(trim($reason), 200, ''), $caseId, $counselorId]
             );
+            if ($changed->rowCount() !== 1) return self::fail('个案状态已变化，请刷新后重试');
+            return ['ok' => true, 'msg' => '个案已结案'];
         });
-        return ['ok' => true, 'msg' => '个案已结案'];
     }
 
     /** 归档（结案后的收尾动作，只影响列表展示，不删数据） */
     public static function archive(int $caseId, int $counselorId): array
     {
-        $case = Database::fetch('SELECT * FROM cases WHERE id=?', [$caseId]);
-        if (!$case) return self::fail('个案不存在');
-        if (!CasePolicy::owns($case, $counselorId)) return self::fail('无权操作该个案');
-        if (!CasePolicy::canTransition((string)$case['status'], 'archived')) {
-            return self::fail('仅已结案的个案可归档');
-        }
-        Database::run("UPDATE cases SET status='archived', updated_at=NOW() WHERE id=?", [$caseId]);
-        return ['ok' => true, 'msg' => '个案已归档'];
+        return Database::transaction(function () use ($caseId, $counselorId): array {
+            $case = Database::fetch('SELECT * FROM cases WHERE id=? FOR UPDATE', [$caseId]);
+            if (!$case) return self::fail('个案不存在');
+            if (!CasePolicy::owns($case, $counselorId)) return self::fail('无权操作该个案');
+            if (!CasePolicy::canTransition((string)$case['status'], 'archived')) {
+                return self::fail('仅已结案的个案可归档');
+            }
+            $changed = Database::run(
+                "UPDATE cases SET status='archived', updated_at=NOW() WHERE id=? AND counselor_id=? AND status='closed'",
+                [$caseId, $counselorId]
+            );
+            if ($changed->rowCount() !== 1) return self::fail('个案状态已变化，请刷新后重试');
+            return ['ok' => true, 'msg' => '个案已归档'];
+        });
     }
 
     /** 登记会次 */
     public static function addSession(int $caseId, int $counselorId, array $in): array
     {
-        $case = Database::fetch('SELECT * FROM cases WHERE id=?', [$caseId]);
-        if (!$case) return self::fail('个案不存在');
-        if (!CasePolicy::owns($case, $counselorId)) {
-            Logger::error('case', 'denied session counselor=' . $counselorId . ' case=' . $caseId);
-            return self::fail('无权操作该个案');
+        $heldAt = $in['held_at'] ?? '';
+        if (!is_string($heldAt) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $heldAt)) return self::fail('请选择有效的会次日期');
+        $parsedDate = \DateTime::createFromFormat('!Y-m-d', $heldAt);
+        if (!$parsedDate || $parsedDate->format('Y-m-d') !== $heldAt) return self::fail('会次日期不存在');
+        $bookingRaw = $in['booking_id'] ?? null;
+        $bookingId = null;
+        if ($bookingRaw !== null && $bookingRaw !== '' && $bookingRaw !== 0 && $bookingRaw !== '0') {
+            if (!is_scalar($bookingRaw)) return self::fail('关联预约编号不合法');
+            if (trim((string)$bookingRaw) !== '') {
+                $bookingId = filter_var($bookingRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if ($bookingId === false) return self::fail('关联预约编号不合法');
+                $bookingId = (int)$bookingId;
+            }
         }
-        if (!CasePolicy::canWrite($case, $counselorId)) return self::fail('个案已结案，不能新增会次');
-
-        $heldAt = (string)($in['held_at'] ?? '');
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $heldAt)) $heldAt = date('Y-m-d');
         $dur = (int)($in['duration_min'] ?? 0);
         $dur = ($dur >= 5 && $dur <= 600) ? $dur : null;
 
         try {
-            $seq = Database::transaction(function () use ($caseId, $counselorId, $heldAt, $dur, $in) {
-                Database::run('SELECT id FROM cases WHERE id=? FOR UPDATE', [$caseId]);
+            return Database::transaction(function () use ($caseId, $counselorId, $heldAt, $dur, $in, $bookingId): array {
+                $case = Database::fetch('SELECT * FROM cases WHERE id=? FOR UPDATE', [$caseId]);
+                if (!$case) return self::fail('个案不存在');
+                if (!CasePolicy::owns($case, $counselorId)) return self::fail('无权操作该个案');
+                if (!CasePolicy::canWrite($case, $counselorId)) return self::fail('个案已结案，不能新增会次');
+                if ($bookingId !== null) {
+                    $booking = Database::fetch(
+                        'SELECT b.* FROM bookings b JOIN members m ON m.id=? AND m.phone=b.phone WHERE b.id=? FOR UPDATE',
+                        [(int)$case['member_id'], $bookingId]
+                    );
+                    if (!$booking || (int)$booking['counselor_id'] !== $counselorId) return self::fail('关联预约与个案会员或咨询师不一致');
+                    if ((string)$booking['status'] !== 'completed') return self::fail('仅已完成预约可登记会次');
+                    $linked = Database::fetch('SELECT id, case_id FROM case_sessions WHERE booking_id=? FOR UPDATE', [$bookingId]);
+                    if ($linked) return self::fail('该预约已关联其他会次，不能重复登记');
+                }
                 $seq = (int)Database::value('SELECT COALESCE(MAX(seq),0)+1 FROM case_sessions WHERE case_id=?', [$caseId]);
-                Database::insert('case_sessions', [
+                $id = Database::insert('case_sessions', [
                     'case_id' => $caseId,
                     'seq' => $seq,
                     'counselor_id' => $counselorId,
-                    'booking_id' => (int)($in['booking_id'] ?? 0) ?: null,
+                    'booking_id' => $bookingId,
                     'held_at' => $heldAt,
                     'duration_min' => $dur,
                     'method' => str_take(trim((string)($in['method'] ?? '')), 20, ''),
@@ -146,19 +181,24 @@ class CaseService
                     'created_at' => date('Y-m-d H:i:s'),
                     'updated_at' => date('Y-m-d H:i:s'),
                 ]);
-                Database::run(
+                if ($id <= 0) return self::fail('会次创建失败');
+                $changed = Database::run(
                     'UPDATE cases SET session_count=session_count+1,
                         last_session_at = CASE WHEN last_session_at IS NULL OR last_session_at < ? THEN ? ELSE last_session_at END,
-                        updated_at=NOW() WHERE id=?',
-                    [$heldAt, $heldAt, $caseId]
+                        updated_at=NOW() WHERE id=? AND status=?',
+                    [$heldAt, $heldAt, $caseId, 'active']
                 );
-                return $seq;
+                if ($changed->rowCount() !== 1) throw new \RuntimeException('个案状态已变化，请刷新后重试');
+                return ['ok' => true, 'id' => $id, 'msg' => '已登记第 ' . $seq . ' 次会次', 'seq' => $seq];
             });
+        } catch (\PDOException $e) {
+            if ((int)($e->errorInfo[1] ?? 0) === 1062) return self::fail('该预约已关联会次或会次序号冲突，请刷新后重试');
+            Logger::error('case', 'session failed: ' . $e->getMessage());
+            return self::fail('会次登记失败，请稍后重试');
         } catch (\Throwable $t) {
             Logger::error('case', 'session failed: ' . $t->getMessage());
-            return self::fail('会次登记失败，请稍后重试');
+            return self::fail($t instanceof \RuntimeException ? $t->getMessage() : '会次登记失败，请稍后重试');
         }
-        return ['ok' => true, 'msg' => '已登记第 ' . $seq . ' 次会次', 'seq' => $seq];
     }
 
     /** 单个个案（含来访者信息），带归属检查 */

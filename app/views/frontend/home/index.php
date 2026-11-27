@@ -60,7 +60,7 @@ $hasStats = ((int)$statYears > 0) || ((int)$statHours > 0) || ((int)$statClients
     <p class="section-sub">持有正规资质、持续受训，找到与你匹配的那个人</p>
     <div class="card-grid counselor-grid">
       <?php foreach ($featured as $c): ?>
-      <a class="card counselor-card" href="<?= url('/counselors/' . $c['slug']) ?>">
+      <a class="card counselor-card" href="<?= e(url('/counselors/' . $c['slug'])) ?>">
         <div class="card-media">
           <?php if ($c['avatar']): ?><img src="<?= e(thumb($c['avatar'])) ?>" alt="咨询师<?= e($c['name']) ?>照片" loading="lazy">
           <?php else: ?><span class="avatar-ph"><?= e(mb_substr($c['name'], 0, 1)) ?></span><?php endif; ?>
@@ -85,7 +85,7 @@ $hasStats = ((int)$statYears > 0) || ((int)$statHours > 0) || ((int)$statClients
     <p class="section-sub">个体 · 伴侣 · 家庭 · 青少年，选择适合你的方式</p>
     <div class="card-grid service-grid">
       <?php foreach ($services as $s): ?>
-      <a class="card service-card" href="<?= url('/services/' . $s['slug']) ?>">
+      <a class="card service-card" href="<?= e(url('/services/' . $s['slug'])) ?>">
         <div class="card-body">
           <h3><?= e($s['name']) ?></h3>
           <p><?= e(str_take((string)$s['summary'], 60)) ?></p>

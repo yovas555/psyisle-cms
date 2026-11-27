@@ -125,11 +125,18 @@ CREATE TABLE `counselors` (
   `education` text NULL COMMENT '教育背景',
   `experience` text NULL COMMENT '从业经历/受训经历',
   `style` text NULL COMMENT '咨询风格',
+  `credentials` text NULL COMMENT '公开资质与注册信息',
+  `supervision` text NULL COMMENT '公开督导与专业支持信息',
   `hours` int unsigned NULL COMMENT '累计咨询时长',
   `fee_from` decimal(10,2) NULL COMMENT '收费起',
   `fee_to` decimal(10,2) NULL COMMENT '收费止',
   `fee_unit` varchar(20) NULL DEFAULT '50分钟',
   `languages` varchar(100) NULL,
+  `service_modes` varchar(120) NULL COMMENT '服务方式：面对面/视频/电话，空值沿用预约表单全部方式',
+  `audiences` varchar(500) NULL COMMENT '服务对象（机构维护）',
+  `unsuitable_topics` varchar(1000) NULL COMMENT '不适合议题与情形（机构维护）',
+  `personal_therapy` text NULL COMMENT '个人体验与自我觉察（咨询师自述）',
+  `profile_draft` longtext NULL COMMENT '资质资料草稿 JSON，审核通过前不公开',
   `phone` varchar(30) NULL COMMENT '手机号（短信提醒收件）',
   `fee_override` text NULL COMMENT '分时定价 JSON: [{weekday,slot,time_from,time_to,price_cents}]',
   `on_leave` tinyint(1) NOT NULL DEFAULT 0 COMMENT '请假状态（1=暂停接单）',
@@ -153,8 +160,100 @@ CREATE TABLE `counselor_slots` (
   `start_time` time NOT NULL,
   `end_time` time NOT NULL,
   `slot_minutes` smallint unsigned NOT NULL DEFAULT 50,
+  `service_mode` varchar(16) NOT NULL DEFAULT 'all' COMMENT 'all/offline/online',
+  `store_id` int unsigned NOT NULL DEFAULT 0 COMMENT '0=沿用咨询师归属门店',
   `status` tinyint(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`), KEY `idx_counselor` (`counselor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- 咨询师按日期请假（快速请假仍使用 counselors.on_leave）
+CREATE TABLE `counselor_leaves` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `counselor_id` int unsigned NOT NULL,
+  `start_date` date NOT NULL,
+  `end_date` date NOT NULL,
+  `note` varchar(190) NULL,
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_counselor_dates` (`counselor_id`,`start_date`,`end_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- 支付成功通知Outbox：管理员邮件与咨询师站内/短信/服务号幂等重试
+CREATE TABLE `booking_paid_notifications` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `booking_id` int unsigned NOT NULL,
+  `channel` varchar(32) NOT NULL,
+  `status` varchar(16) NOT NULL DEFAULT 'pending',
+  `attempts` smallint unsigned NOT NULL DEFAULT 0,
+  `last_error` varchar(500) NULL,
+  `next_attempt_at` datetime NULL,
+  `payload` longtext NULL,
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime NOT NULL,
+  `sent_at` datetime NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_booking_channel` (`booking_id`,`channel`),
+  KEY `idx_status_updated` (`status`,`updated_at`),
+  KEY `idx_status_next` (`status`,`next_attempt_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- 咨询师可提供的服务（显式关联；不根据擅长方向或价格自动推断）
+CREATE TABLE `counselor_services` (
+  `counselor_id` int unsigned NOT NULL,
+  `service_id` int unsigned NOT NULL,
+  `created_at` datetime NULL,
+  PRIMARY KEY (`counselor_id`,`service_id`),
+  KEY `idx_service_counselor` (`service_id`,`counselor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- 咨询师信任信息核验台账（追加记录；内部依据不进入公开投影）
+CREATE TABLE `counselor_verifications` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `counselor_id` int unsigned NOT NULL,
+  `item_key` varchar(32) NOT NULL,
+  `status` varchar(16) NOT NULL,
+  `subject_hash` char(64) NOT NULL,
+  `evidence_reference` text NULL COMMENT '内部核验依据，禁止公开',
+  `verified_summary` varchar(1000) NULL COMMENT '可公开核验摘要',
+  `reviewed_at` datetime NOT NULL,
+  `expires_at` date NULL,
+  `actor_id` int unsigned NOT NULL,
+  `verifier_name` varchar(80) NOT NULL,
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_counselor_latest` (`counselor_id`,`item_key`,`id`),
+  KEY `idx_actor` (`actor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- 咨询师资质资料发布审核（草稿→待审→通过/驳回；通过前不覆盖公开字段）
+CREATE TABLE `counselor_profile_submissions` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `counselor_id` int unsigned NOT NULL,
+  `payload` longtext NOT NULL COMMENT '提交时的资质资料快照 JSON',
+  `base_hash` char(64) NOT NULL COMMENT '提交时公开版本哈希，用于冲突检测',
+  `status` varchar(16) NOT NULL DEFAULT 'pending' COMMENT 'pending/approved/rejected',
+  `submitted_by` int unsigned NOT NULL,
+  `submitted_at` datetime NOT NULL,
+  `reviewed_by` int unsigned NULL,
+  `reviewed_at` datetime NULL,
+  `review_note` varchar(500) NULL,
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_counselor_status` (`counselor_id`,`status`,`id`),
+  KEY `idx_status` (`status`,`id`),
+  KEY `idx_submitter` (`submitted_by`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- 咨询师资质审核私有附件（仅登录后的咨询师本人或机构管理员可下载）
+CREATE TABLE `counselor_profile_attachments` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `counselor_id` int unsigned NOT NULL,
+  `submission_id` int unsigned NULL,
+  `original_name` varchar(190) NOT NULL,
+  `stored_path` varchar(255) NOT NULL COMMENT '相对 storage 的私有路径',
+  `mime` varchar(100) NOT NULL,
+  `size` int unsigned NOT NULL,
+  `sha256` char(64) NOT NULL,
+  `created_by` int unsigned NOT NULL,
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_counselor` (`counselor_id`,`id`),
+  KEY `idx_submission` (`submission_id`,`id`),
+  KEY `idx_creator` (`created_by`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 -- 服务项目
 CREATE TABLE `services` (
@@ -204,11 +303,25 @@ CREATE TABLE `bookings` (
   `remind_sms_1h_at` datetime NULL COMMENT '未确认时前1小时短信已发时间（防重）',
   `admin_note` varchar(500) NULL,
   `source` varchar(30) NULL DEFAULT 'web',
+  `rule_snapshot` JSON NULL COMMENT '下单时规则快照；历史记录不伪造回填',
   `ip` varchar(64) NULL,
   `created_at` datetime NULL,
   `updated_at` datetime NULL,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_code` (`code`),
   KEY `idx_status` (`status`), KEY `idx_phone` (`phone`), KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `booking_status_events` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `booking_id` int unsigned NOT NULL,
+  `from_status` varchar(20) NOT NULL,
+  `to_status` varchar(20) NOT NULL,
+  `event_type` varchar(32) NOT NULL DEFAULT 'status_change',
+  `actor_id` int unsigned NULL,
+  `actor_name` varchar(80) NOT NULL,
+  `note` varchar(500) NULL,
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_booking_events` (`booking_id`,`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 -- 咨询留言
 CREATE TABLE `messages` (
@@ -633,7 +746,7 @@ CREATE TABLE `upgrade_api_logs` (
   `created_at` datetime NULL,
   PRIMARY KEY (`id`), KEY `k_created` (`created_at`), KEY `k_license` (`license`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-SET FOREIGN_KEY_CHECKS = 1;\n
+SET FOREIGN_KEY_CHECKS = 1;
 -- 心理自评量表（内置 PHQ-9/GAD-7，仅筛查提示不构成诊断）
 CREATE TABLE `assessments` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -868,6 +981,7 @@ CREATE TABLE IF NOT EXISTS `case_sessions` (
   `updated_at` datetime NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_case_seq` (`case_id`,`seq`),
+  UNIQUE KEY `uk_case_session_booking` (`booking_id`),
   KEY `k_counselor_date` (`counselor_id`,`held_at`),
   KEY `k_booking` (`booking_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='个案会次（P1-A）';
@@ -983,6 +1097,10 @@ CREATE TABLE IF NOT EXISTS `case_homeworks` (
 CREATE TABLE IF NOT EXISTS `case_followups` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `case_id` int unsigned NOT NULL,
+  `booking_id` int unsigned NULL COMMENT '来源预约',
+  `session_id` int unsigned NULL COMMENT '来源会次',
+  `source` varchar(32) NOT NULL DEFAULT 'manual' COMMENT 'manual/booking_feedback',
+  `source_key` varchar(190) NULL COMMENT '来源幂等键',
   `counselor_id` int unsigned NOT NULL,
   `due_at` date NOT NULL COMMENT '计划联系日期',
   `channel` varchar(12) NOT NULL DEFAULT 'phone' COMMENT 'phone/wechat/sms/visit',
@@ -993,9 +1111,34 @@ CREATE TABLE IF NOT EXISTS `case_followups` (
   `created_at` datetime NULL,
   `updated_at` datetime NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_followup_source_key` (`source_key`),
   KEY `k_case` (`case_id`,`status`),
-  KEY `k_counselor_due` (`counselor_id`,`status`,`due_at`)
+  KEY `k_counselor_due` (`counselor_id`,`status`,`due_at`),
+  KEY `k_followup_booking` (`booking_id`),
+  KEY `k_followup_session` (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='个案随访计划（P1-D）';
+
+CREATE TABLE IF NOT EXISTS `booking_feedbacks` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `booking_id` int unsigned NOT NULL,
+  `member_id` int unsigned NULL,
+  `counselor_id` int unsigned NOT NULL,
+  `case_id` int unsigned NULL,
+  `status` varchar(16) NOT NULL DEFAULT 'pending' COMMENT 'pending/submitted/closed/unavailable',
+  `rating` tinyint unsigned NULL,
+  `comment` text NULL,
+  `wants_followup` tinyint(1) NOT NULL DEFAULT 0,
+  `bridge_status` varchar(20) NOT NULL DEFAULT 'pending' COMMENT 'pending/waiting_case/created/not_applicable/unavailable',
+  `skip_reason` varchar(190) NULL,
+  `submitted_at` datetime NULL,
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_booking_feedback_booking` (`booking_id`),
+  KEY `k_feedback_member` (`member_id`,`status`),
+  KEY `k_feedback_counselor` (`counselor_id`,`status`),
+  KEY `k_feedback_bridge` (`bridge_status`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='咨询完成后的会员反馈';
 
 -- 随访计划（P2-A）
 CREATE TABLE IF NOT EXISTS `followup_plans` (

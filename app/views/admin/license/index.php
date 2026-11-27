@@ -44,6 +44,7 @@
         </td></tr>
       <tr><th>多门店</th><td><?= $u['multisite'] ? '<span class="ok-text">✔ 支持</span>' : '—（专业版及以上）' ?></td></tr>
       <tr><th>去版权</th><td><?= $u['remove_brand'] ? '<span class="ok-text">✔ 可关闭</span>' : '—（永久版）' ?></td></tr>
+      <tr><th>商业插件</th><td><?= $u['commercial_plugins'] ? '<span class="ok-text">✔ 全部永久使用</span>' : '—（永久版全部，其他版本按授权位）' ?></td></tr>
       <tr><th>AI 客服</th><td><?= $u['ai_chat'] ? '<span class="ok-text">✔ 已启用</span>' : '<span class="draft">✗ 已降级（远程校验超期）</span>' ?></td></tr>
     </table>
 
@@ -87,9 +88,42 @@
       <?php if (!empty($remote['min_from']) && version_compare($version, (string)$remote['min_from'], '<')): ?>
       <div class="alert alert-warning">当前版本低于最低直升版本 <?= e((string)$remote['min_from']) ?>，请先手动逐级升级。</div>
       <?php elseif ($dist): ?>
+      <?php
+        $policy = is_array($remote['plugin_policy'] ?? null) ? $remote['plugin_policy'] : null;
+        $requirements = ($policy && ($policy['mode'] ?? '') === 'separate-plugins' && is_array($policy['require_plugins'] ?? null))
+            ? $policy['require_plugins'] : null;
+        $pluginsReady = false;
+        $pluginReason = '主站未返回有效的独立插件升级策略，禁止执行核心升级。';
+        $pluginChecks = [];
+        if ($requirements !== null) {
+            [$pluginsReady, $pluginReason] = \app\Services\ReleasePackage::checkPluginVersions($requirements);
+            foreach ($requirements as $requiredSlug => $requiredVersion) {
+                [$checkOk, $checkReason] = \app\Services\ReleasePackage::checkPluginVersions([$requiredSlug => $requiredVersion]);
+                $pluginChecks[] = ['ok' => $checkOk, 'reason' => $checkReason];
+            }
+        }
+        $packageReady = ($remote['package_type'] ?? '') === 'upgrade';
+        $canCoreUpgrade = $pluginsReady && $packageReady;
+      ?>
+      <div class="alert <?= $canCoreUpgrade ? 'alert-info' : 'alert-warning' ?>">
+        <b>核心升级前置插件条件</b>
+        <?php if ($requirements === null): ?>
+          <p>无法确认 require_plugins，一键升级已禁用。</p>
+        <?php elseif (!$requirements): ?>
+          <p>无额外插件版本要求。</p>
+        <?php else: ?>
+          <ul>
+            <?php foreach ($pluginChecks as $check): ?>
+              <li class="<?= $check['ok'] ? 'ok-text' : 'err-text' ?>"><?= e($check['reason'] !== '' ? $check['reason'] : '插件版本条件已满足') ?></li>
+            <?php endforeach; ?>
+          </ul>
+        <?php endif; ?>
+        <?php if (!$packageReady): ?><p class="err-text">主站未确认 package_type=upgrade，一键升级已禁用。</p><?php endif; ?>
+        <?php if (!$pluginsReady && $requirements !== null): ?><p class="err-text"><?= e($pluginReason) ?></p><?php endif; ?>
+      </div>
       <form method="post" action="/admin/upgrade/remote" data-confirm="将从主站下载升级包并自动备份安装，确认执行？">
         <?= csrf_field() ?>
-        <button class="btn btn-primary" type="submit">一键升级到 <?= e($remote['version']) ?></button>
+        <button class="btn btn-primary" type="submit" <?= $canCoreUpgrade ? '' : 'disabled' ?>>一键升级到 <?= e($remote['version']) ?></button>
       </form>
       <?php endif; ?>
       <?php else: ?><p class="muted">已是最新版本（<?= $dist ? '主站验签确认' : '远端' ?> <?= e($remote['version']) ?>）。</p><?php endif; ?>
@@ -98,6 +132,7 @@
     <?php endif; ?>
     <?php if ($dist): ?>
     <p class="hint">升级通道：升级分发主站（授权码 + 域名 + IP 三重校验通过后下发，本地再验签 + md5 双保险；自动备份，失败自动回滚）。</p>
+    <p class="hint">插件升级与核心升级相互独立：核心升级包不覆盖 plugins/，请按下方插件清单单独更新。</p>
     <h3>插件更新（官方插件库）</h3>
     <?php if (!$pluginUpdates): ?><p class="muted">全部官方插件已是最新。</p><?php else: ?>
     <table class="table">
@@ -132,7 +167,7 @@
       <?= csrf_field() ?>
       <button class="btn btn-primary" type="submit">执行升级</button>
     </form>
-    <p class="hint">升级流程：备份 → 覆盖安全目录（app/config/public/database）→ 迁移脚本 → 失败自动回滚。</p>
+    <p class="hint">升级流程：完整验签 → 检查前置插件 → 备份 app/public/database/tools 与升级记录 → 逐文件写入并回读 → 迁移脚本 → 失败自动回滚；config 绝不覆盖。</p>
 
     <h2>升级历史</h2>
     <table class="table">

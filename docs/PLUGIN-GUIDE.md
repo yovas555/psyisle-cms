@@ -52,6 +52,7 @@ plugins/
 | 字段 | 作用 |
 |---|---|
 | `min_cms_version` | 启用时校验核心版本，低于此值拒绝启用并提示 |
+| `presets` | 可选。后台 `select` 设置项的预设元数据，键与 `options` 一致，值为 `{"url":"…","model":"…"}`；视图与前端脚本必须读取同一份清单，禁止各自维护地址/模型映射 |
 | `dependencies` | 依赖插件必须已启用；**停用被依赖插件也会被阻止** |
 | `cron[].schedule` | `minutely`（每分钟，`/admin/cron/minute`）或 `daily`（每日，`/admin/cron/plugins`） |
 | `admin_menu` | 后台侧栏菜单项；`path` 为空 → 插件设置页，非空 → `/admin/plugin/{slug}/{path}` |

@@ -56,7 +56,8 @@ class App
         $r->post('/booking', 'Booking@store');
         $r->get('/booking/confirm', 'Booking@confirm');
         $r->get('/booking/success', 'Booking@success');
-        $r->get('/booking/slots', 'Booking@slots');
+        $r->get('/booking/prepare', 'Booking@prepare');
+    $r->get('/booking/slots', 'Booking@slots');
         $r->get('/n/{token:[a-f0-9]{8,16}}', 'NotifyClick@go');
         // v2.18：公开只读 API（api.public_enabled 开关）与 MCP Server（mcp_enabled 开关，默认关）
         $r->get('/api/public/{path:[a-zA-Z_]+}', 'PublicApi@dispatch');
@@ -94,6 +95,8 @@ class App
         $r->post('/member/settings', 'Member@settings');
         $r->get('/member', 'Member@index');
         $r->get('/member/bookings', 'Member@bookings');
+        $r->get('/member/bookings/{id:\d+}/feedback', 'Member@feedback');
+        $r->post('/member/bookings/{id:\d+}/feedback', 'Member@feedback');
         $r->post('/member/bookings/cancel/{id:\d+}', 'Member@cancelBooking');
         $r->post('/member/bookings/reschedule/{id:\d+}', 'Member@rescheduleBooking');
         $r->get('/member/assessments', 'Member@assessments');
@@ -177,8 +180,17 @@ class App
         $r->get('/admin/area/{domain:[a-z]+}', 'Admin\Area@index');
         // 咨询师工作台（v2.10.0：counselor_workspace 角色，自范围数据）
         $r->get('/admin/counselor-home', 'Admin\CounselorHome@index');
+        $r->get('/admin/counselor-home/todos', 'Admin\CounselorHome@todos');
+        $r->post('/admin/counselor-home/todos', 'Admin\CounselorHome@todos');
+        $r->get('/admin/counselor-home/calendar', 'Admin\CounselorHome@calendar');
+        $r->get('/admin/counselor-home/settlement', 'Admin\CounselorHome@settlement');
+        $r->get('/admin/counselor-home/feedbacks', 'Admin\CounselorHome@feedbacks');
+        $r->post('/admin/counselor-home/feedbacks', 'Admin\CounselorHome@feedbacks');
         $r->get('/admin/counselor-home/profile', 'Admin\CounselorHome@profile');
         $r->post('/admin/counselor-home/profile', 'Admin\CounselorHome@profile');
+        $r->post('/admin/counselor-home/profile/submit', 'Admin\CounselorHome@profileSubmit');
+        $r->post('/admin/counselor-home/evidence/upload', 'Admin\CounselorHome@evidenceUpload');
+        $r->get('/admin/counselor-home/evidence/{id:\d+}', 'Admin\CounselorHome@evidenceDownload');
         $r->get('/admin/counselor-home/bookings', 'Admin\CounselorHome@bookings');
         $r->get('/admin/counselor-home/schedule', 'Admin\CounselorHome@schedule');
         $r->post('/admin/counselor-home/schedule', 'Admin\CounselorHome@schedule');
@@ -221,9 +233,15 @@ class App
         // 咨询师入驻（v2.24.1）：从会员一键建档（注册会员→绑微信→管理员提升）
         $r->get('/admin/counselors/promote', 'Admin\Counselor@promote');
         $r->post('/admin/counselors/promote', 'Admin\Counselor@promote');
+        $r->get('/admin/counselors/{id:\d+}/verification', 'Admin\CounselorVerification@show');
+        $r->post('/admin/counselors/{id:\d+}/verification', 'Admin\CounselorVerification@show');
+        $r->get('/admin/counselor-profile-reviews', 'Admin\CounselorVerification@reviews');
+        $r->get('/admin/counselor-profile-reviews/{id:\d+}', 'Admin\CounselorVerification@review');
+        $r->post('/admin/counselor-profile-reviews/{id:\d+}', 'Admin\CounselorVerification@reviewAction');
+        $r->get('/admin/counselor-profile-reviews/evidence/{id:\d+}', 'Admin\CounselorVerification@evidenceDownload');
         $adminList = [
             'articles' => 'Admin\Article', 'pages' => 'Admin\Page', 'categories' => 'Admin\Category',
-            'counselors' => 'Admin\Counselor', 'services' => 'Admin\Service', 'bookings' => 'Admin\Booking',
+            'counselors' => 'Admin\Counselor', 'services' => 'Admin\Service',
             'messages' => 'Admin\Message', 'chat' => 'Admin\Chat', 'faqs' => 'Admin\Faq',
             'media' => 'Admin\Media', 'banners' => 'Admin\Banner', 'navs' => 'Admin\Nav',
             'links' => 'Admin\Link', 'users' => 'Admin\User', 'settings' => 'Admin\Setting',
@@ -241,7 +259,12 @@ class App
             $r->post('/admin/' . $seg . '/delete/{id:\d+}', $ctl . '@delete');
             $r->post('/admin/' . $seg . '/toggle/{id:\d+}', $ctl . '@toggle');
         }
+        $r->get('/admin/bookings', 'Admin\Booking@index');
+        $r->get('/admin/bookings/{id:\d+}/edit', 'Admin\Booking@edit');
+        $r->post('/admin/bookings/delete/{id:\d+}', 'Admin\Booking@delete');
         $r->post('/admin/media/upload', 'Admin\Media@upload');
+        $r->post('/admin/counselors/avatar/upload', 'Admin\Counselor@avatarUpload');
+        $r->post('/admin/counselor-home/avatar/upload', 'Admin\CounselorHome@avatarUpload');
         $r->get('/admin/media/list', 'Admin\Media@listJson');
         $r->post('/admin/settings/save', 'Admin\Setting@save');
         $r->post('/admin/settings/testmail', 'Admin\Setting@testMail');

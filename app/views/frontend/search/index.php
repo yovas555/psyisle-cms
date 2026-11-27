@@ -25,7 +25,7 @@
     <section class="cp-section"><h2>咨询师</h2>
       <ul class="search-list">
         <?php foreach ($results['counselors'] as $r): ?>
-        <li><a href="<?= url('/counselors/' . $r['slug']) ?>"><?= e($r['name']) ?> · <?= e($r['title']) ?></a><span class="muted"><?= e(str_take((string)$r['specialties'], 30)) ?></span></li>
+        <li><a href="<?= e(url('/counselors/' . $r['slug'])) ?>"><?= e($r['name']) ?> · <?= e($r['title']) ?></a><span class="muted"><?= e(str_take((string)$r['specialties'], 30)) ?></span></li>
         <?php endforeach; ?>
       </ul>
     </section>
@@ -35,7 +35,7 @@
     <section class="cp-section"><h2>服务</h2>
       <ul class="search-list">
         <?php foreach ($results['services'] as $r): ?>
-        <li><a href="<?= url('/services/' . $r['slug']) ?>"><?= e($r['name']) ?></a><span class="muted"><?= e(str_take((string)$r['summary'], 30)) ?></span></li>
+        <li><a href="<?= e(url('/services/' . $r['slug'])) ?>"><?= e($r['name']) ?></a><span class="muted"><?= e(str_take((string)$r['summary'], 30)) ?></span></li>
         <?php endforeach; ?>
       </ul>
     </section>

@@ -5,9 +5,9 @@
     <form method="post" action="/admin/counselor-home/schedule">
       <?= csrf_field() ?>
       <input type="hidden" name="act" value="slots">
-      <label class="field field-full"><span class="label">可约时段（每行一条：星期|开始|结束，星期 1-7，如 6|09:00|12:00）</span>
-        <textarea name="slots_text" rows="5" placeholder="6|09:00|12:00&#10;6|14:00|17:00&#10;3|19:00|21:00"><?= e((string)$slotsText) ?></textarea>
-        <span class="hint">这些时段决定前台预约页的可约时间；保存实时生效。咨询方式（面对面/视频/电话）共用同一套时段。</span>
+      <label class="field field-full"><span class="label">每周可约时段（每行一条）</span>
+        <textarea name="slots_text" rows="7" placeholder="6|09:00|12:00|50|all|0&#10;6|14:00|17:00|50|offline|1&#10;3|19:00|21:00|50|online|0"><?= e((string)$slotsText) ?></textarea>
+        <span class="hint">格式：星期|开始|结束|单次分钟|方式|门店ID。星期 1-7；方式 all=线上+线下、offline=仅面对面、online=仅视频/电话；门店ID 0=沿用咨询师归属门店，线上咨询自动忽略门店。保存实时生效。</span>
       </label>
       <div class="form-actions"><button class="btn btn-primary" type="submit">保存时段</button></div>
     </form>
@@ -96,5 +96,49 @@
     <button class="btn btn-primary" type="submit"><?= (int)($onLeave ?? 0) ? '恢复接单' : '标记请假' ?></button>
   </form>
   <p class="hint">请假后前台不可选择该咨询师的新预约；已确认预约不受影响。</p>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>按日期请假</h2>
+  <p class="hint">请假优先于每周排班与例外开诊；只影响当前咨询师的预约。</p>
+  <div class="dash-grid">
+    <form method="post" action="/admin/counselor-home/schedule">
+      <?= csrf_field() ?>
+      <input type="hidden" name="act" value="leave-range">
+      <input type="hidden" name="redirect" value="schedule">
+      <label class="field"><span class="label">开始日期</span><input type="date" name="start_date" required value="<?= e(date('Y-m-d')) ?>"></label>
+      <label class="field"><span class="label">结束日期</span><input type="date" name="end_date" required value="<?= e(date('Y-m-d')) ?>"></label>
+      <label class="field"><span class="label">请假原因</span><input type="text" name="note" maxlength="120" placeholder="例如：年假、培训、出差"></label>
+      <button class="btn btn-primary" type="submit">新增请假</button>
+    </form>
+    <div>
+      <?php if (empty($leaveRanges)): ?>
+        <p class="muted">当前没有未来的请假记录。</p>
+      <?php else: foreach ($leaveRanges as $lv): ?>
+        <div class="quick" style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+          <div><b><?= e((string)$lv['start_date']) ?> → <?= e((string)$lv['end_date']) ?></b><div class="muted"><?= e((string)($lv['note'] ?? '')) ?></div></div>
+          <form method="post" action="/admin/counselor-home/schedule" onsubmit="return confirm('删除这条请假记录？')">
+            <?= csrf_field() ?>
+            <input type="hidden" name="act" value="leave-range-del">
+            <input type="hidden" name="redirect" value="schedule">
+            <input type="hidden" name="id" value="<?= (int)$lv['id'] ?>">
+            <button class="btn btn-sm btn-ghost" type="submit">删除</button>
+          </form>
+        </div>
+      <?php endforeach; endif; ?>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>门店与咨询方式</h2>
+  <p class="hint">面对面咨询会使用排班门店；门店ID为0时沿用咨询师归属门店。视频、电话咨询不要求门店。</p>
+  <?php if (empty($storeNames)): ?>
+    <p class="muted">当前没有启用门店，面对面预约将由机构安排。</p>
+  <?php else: ?>
+    <div class="chips">
+      <?php foreach ($storeNames as $sid => $sname): ?><span class="chip"><?= (int)$sid ?> · <?= e((string)$sname) ?></span><?php endforeach; ?>
+    </div>
+  <?php endif; ?>
 </div>
 

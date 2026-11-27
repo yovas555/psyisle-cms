@@ -3,8 +3,11 @@ declare(strict_types=1);
 
 namespace app\Controllers\Admin;
 
+use app\Core\Csrf;
 use app\Core\Database;
 use app\Core\Request;
+use app\Core\Uploader;
+use app\Services\CounselorProfile;
 
 class Counselor extends Base
 {
@@ -15,6 +18,7 @@ class Counselor extends Base
     protected string $baseSeg = 'counselors';
     protected array $searchFields = ['name', 'specialties'];
     protected string $toggleCol = 'status';
+    private array $serviceIds = [];
     protected array $columns = [
         'name' => ['姓名', 'text'],
         'title' => ['头衔', 'text'],
@@ -28,7 +32,7 @@ class Counselor extends Base
         'slug' => ['URL 别名', 'text', ['hint' => '留空自动生成']],
         'gender' => ['性别', 'gender_select', []],
         'title' => ['头衔（如：国家二级心理咨询师）', 'text', []],
-        'avatar' => ['头像', 'image', []],
+        'avatar' => ['头像', 'image', ['crop' => 'square', 'upload' => '/admin/counselors/avatar/upload', 'hint' => '上传后可拖拽、缩放和旋转，保存为 960×960 头像']],
         'video_url' => ['视频介绍链接', 'text', ['hint' => '支持 B 站（bilibili.com/video/BV…）与腾讯视频（v.qq.com）链接，留空不显示']],
         'orientation' => ['咨询流派', 'text', []],
         'specialties' => ['擅长方向（顿号分隔）', 'text', ['hint' => '如：情绪困扰、亲子关系、职场压力']],
@@ -36,11 +40,18 @@ class Counselor extends Base
         'education' => ['教育背景', 'richtext', []],
         'experience' => ['受训与从业经历', 'richtext', []],
         'style' => ['咨询风格', 'richtext', []],
+        'credentials' => ['资质与注册信息（咨询师自述）', 'textarea', ['rows' => 3, 'hint' => '管理员保存会直接公开；咨询师工作台提交需审核。公开自述不代表平台已核验']],
+        'supervision' => ['督导与专业支持（咨询师自述）', 'textarea', ['rows' => 3, 'hint' => '管理员保存会直接公开；咨询师工作台提交需审核。公开自述不代表平台已核验']],
+        'audiences' => ['服务对象（机构维护）', 'textarea', ['rows' => 2, 'hint' => '例如成人、青少年、伴侣；仅机构管理员维护']],
+        'unsuitable_topics' => ['不适合议题与情形（机构维护）', 'textarea', ['rows' => 3, 'hint' => '明确暂不适合接访的范围与转介建议，避免访客误约']],
+        'personal_therapy' => ['个人体验与自我觉察（咨询师自述）', 'textarea', ['rows' => 3, 'hint' => '例如持续个人体验、受督导情况；不填写证书编号等敏感信息']],
         'hours' => ['累计咨询时长（小时）', 'number', []],
-        'fee_from' => ['收费起（元）', 'decimal', []],
-        'fee_to' => ['收费止（元）', 'decimal', []],
+        'service_ids' => ['可提供的服务项目', 'service_multi', ['hint' => '只勾选该咨询师实际提供的服务；预约价格以所选服务为基准，分时定价可覆盖。未关联服务不会出现在该咨询师档案与预约选项中']],
+        'fee_from' => ['通用收费起（元）', 'decimal', ['hint' => '仅用于未选择服务项目的预约；已关联服务按服务项目价格']],
+        'fee_to' => ['通用收费止（元）', 'decimal', ['hint' => '仅用于未选择服务项目的展示']],
         'fee_unit' => ['计费单位', 'text', ['hint' => '默认 50分钟']],
         'languages' => ['咨询语言', 'text', []],
+        'service_modes' => ['服务方式', 'mode_multi', ['hint' => '全部不勾选表示沿用预约表单的全部方式；勾选后前台筛选与预约提交都会按此限制']],
         'tags' => ['标签', 'text', []],
         'is_featured' => ['首页推荐', 'switch', []],
         'sort' => ['排序（小在前）', 'number', []],
@@ -51,49 +62,120 @@ class Counselor extends Base
         'seo_description' => ['SEO 描述', 'textarea', ['rows' => 2]],
     ];
 
+    public function avatarUpload(Request $req, array $p): void
+    {
+        Csrf::guard();
+        $file = $req->file('file');
+        if (!$file) json_out(['ok' => false, 'msg' => '未选择文件']);
+        $info = @getimagesize($file['tmp_name']);
+        if (!$info || (int)$info[2] !== IMAGETYPE_JPEG || (int)$info[0] !== 960 || (int)$info[1] !== 960) {
+            json_out(['ok' => false, 'msg' => '头像必须为裁剪后的 960×960 JPG 图片']);
+        }
+        [$ok, $path, $name, $err] = Uploader::image($file, 'counselor');
+        if (!$ok) json_out(['ok' => false, 'msg' => $err]);
+        $this->audit('counselor.avatar_upload', 'attachments', null, ['path' => $path]);
+        json_out(['ok' => true, 'path' => $path, 'name' => $name]);
+    }
+
     protected function beforeSave(array &$data, ?int $id, string $mode): void
     {
+        $uid = (int)($data['user_id'] ?? 0);
+        if ($uid > 0) {
+            $dup = Database::fetch('SELECT id FROM counselors WHERE user_id=? AND id<>?', [$uid, (int)($id ?? 0)]);
+            if ($dup) {
+                \app\Core\Session::flash('error', '该后台账号已绑定其他咨询师（一个账号仅可绑定一位），已清空本次绑定');
+                $data['user_id'] = null;
+            }
+        } else {
+            $data['user_id'] = null;
+        }
         if (empty($data['slug'])) {
             $data['slug'] = \app\Core\Str::slugify($data['name'] ?? '') ?: 'c-' . date('YmdHis');
+        }
+        $data['slug'] = mb_substr((string)$data['slug'], 0, 60);
+        if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*$/', (string)$data['slug'])) {
+            \app\Core\Session::flash('error', 'URL 别名只能使用字母、数字、连字符或下划线');
+            \app\Core\ResponseRedirect('/admin/counselors' . ($id ? '/' . $id . '/edit' : '/create'));
         }
     }
 
     protected function afterSave(array $data, int $id, string $mode): void
     {
-        // 保存可约时段（v2.17.0：每行「星期|开始|结束[|单次分钟]」，第 4 列可选默认 50，范围 10-240）
-        $slots = (string)($_POST['slots_text'] ?? '');
-        Database::delete('counselor_slots', 'counselor_id=?', [$id]);
-        foreach (preg_split('/[\r\n]+/', trim($slots)) as $line) {
-            $line = trim($line);
-            if ($line === '') continue;
-            $parts = array_map('trim', explode('|', $line));
-            if (count($parts) < 3 || !isset($parts[0], $parts[1], $parts[2])) continue;
-            [$wd, $st, $et] = $parts;
-            if (!isset($wd[0]) || (int)$wd < 1 || (int)$wd > 7) continue;
-            $slotMin = (int)($parts[3] ?? 50);
-            if ($slotMin < 10 || $slotMin > 240) $slotMin = 50;
-            if (!preg_match('/^\d{1,2}:\d{2}$/', $st) || !preg_match('/^\d{1,2}:\d{2}$/', $et)) continue;
-            Database::insert('counselor_slots', [
-                'counselor_id' => $id, 'weekday' => (int)$wd,
-                'start_time' => $st . ':00', 'end_time' => $et . ':00',
-                'slot_minutes' => $slotMin, 'status' => 1,
-            ]);
+        if ((string)($_POST['_counselor_form'] ?? '') !== '1') {
+            parent::afterSave($data, $id, $mode);
+            return;
         }
+        Database::transaction(function () use ($id): void {
+            Database::delete('counselor_services', 'counselor_id=?', [$id]);
+            $services = Database::fetchAll('SELECT id FROM services WHERE status=1');
+            $validIds = array_map('intval', array_column($services, 'id'));
+            foreach (array_unique($this->serviceIds) as $serviceId) {
+                if (!in_array($serviceId, $validIds, true)) continue;
+                Database::insert('counselor_services', [
+                    'counselor_id' => $id, 'service_id' => $serviceId, 'created_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+            if (array_key_exists('slots_text', $_POST)) {
+                $slots = (string)$_POST['slots_text'];
+                Database::delete('counselor_slots', 'counselor_id=?', [$id]);
+                foreach (preg_split('/[\r\n]+/', trim($slots)) as $line) {
+                    $line = trim($line);
+                    if ($line === '') continue;
+                    $parts = array_map('trim', explode('|', $line));
+                    if (count($parts) < 3 || !isset($parts[0], $parts[1], $parts[2])) continue;
+                    [$wd, $st, $et] = $parts;
+                    if (!isset($wd[0]) || (int)$wd < 1 || (int)$wd > 7) continue;
+                    $slotMin = (int)($parts[3] ?? 50);
+                    if ($slotMin < 10 || $slotMin > 240) $slotMin = 50;
+                    $slotMode = (string)($parts[4] ?? 'all');
+                    if (!in_array($slotMode, ['all', 'offline', 'online'], true)) $slotMode = 'all';
+                    $slotStoreId = (int)($parts[5] ?? 0);
+                    if ($slotMode === 'online') $slotStoreId = 0;
+                    if (!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $st) || !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $et)) continue;
+                    Database::insert('counselor_slots', [
+                        'counselor_id' => $id, 'weekday' => (int)$wd,
+                        'start_time' => $st . ':00', 'end_time' => $et . ':00',
+                        'slot_minutes' => $slotMin, 'service_mode' => $slotMode,
+                        'store_id' => $slotStoreId, 'status' => 1,
+                    ]);
+                }
+            }
+        });
+        parent::afterSave($data, $id, $mode);
+    }
+
+    protected function afterDelete(int $id): void
+    {
+        Database::transaction(static function () use ($id): void {
+            Database::delete('counselor_services', 'counselor_id=?', [$id]);
+            Database::delete('counselor_slots', 'counselor_id=?', [$id]);
+        });
+        parent::afterDelete($id);
     }
 
     protected function collect(Request $req): array
     {
         $data = parent::collect($req);
-        $data['gender'] = in_array($req->post('gender', ''), ['1','2'], true) ? (int)$req->post('gender') : null;
-        // v2.20.2 工作台账号绑定：空值→NULL；同账号重复绑定其他咨询师时提示（一账号一咨询师）
-        $uid = (int)$req->post('user_id', 0);
-        if ($uid > 0) {
-            $dup = Database::fetch('SELECT id FROM counselors WHERE user_id=? AND id<>?', [$uid, (int)($req->post('id', 0) ?: 0)]);
-            if ($dup) { \app\Core\Session::flash('error', '该后台账号已绑定其他咨询师（一个账号仅可绑定一位），已清空本次绑定'); $data['user_id'] = null; }
-            else { $data['user_id'] = $uid; }
-        } else {
-            $data['user_id'] = null;
+        $this->serviceIds = [];
+        foreach ((array)$req->post('service_ids', []) as $serviceId) {
+            $serviceId = (int)$serviceId;
+            if ($serviceId > 0) $this->serviceIds[] = $serviceId;
         }
+        unset($data['service_ids']);
+        $data['gender'] = in_array($req->post('gender', ''), ['1','2'], true) ? (int)$req->post('gender') : null;
+        if (self::hasCol('counselors', 'service_modes')) {
+            $data['service_modes'] = implode(',', CounselorProfile::modes($req->post('service_modes', [])));
+        } else {
+            unset($data['service_modes']);
+        }
+        foreach (['credentials' => 2000, 'supervision' => 2000, 'audiences' => 500, 'unsuitable_topics' => 1000, 'personal_therapy' => 2000] as $field => $limit) {
+            if (self::hasCol('counselors', $field)) {
+                $data[$field] = mb_substr((string)($data[$field] ?? ''), 0, $limit);
+            } else {
+                unset($data[$field]);
+            }
+        }
+        $data['user_id'] = (int)$req->post('user_id', 0) > 0 ? (int)$req->post('user_id', 0) : null;
         return $data;
     }
 

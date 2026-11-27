@@ -33,6 +33,35 @@ class Uploader
         return self::save($file, 'doc', $module);
     }
 
+    public static function detectMime(string $path, string $content, string $ext = ''): string
+    {
+        $ext = strtolower($ext);
+        if (in_array($ext, ['docx', 'xlsx'], true) && strncmp($content, "PK\x03\x04", 4) === 0) {
+            if (!class_exists('\\ZipArchive')) return '';
+            $zip = new \ZipArchive();
+            if (@$zip->open($path, \ZipArchive::CHECKCONS) !== true) return '';
+            $hasWord = $zip->locateName('word/document.xml') !== false;
+            $hasSheet = $zip->locateName('xl/workbook.xml') !== false;
+            $zip->close();
+            if ($ext === 'docx' && $hasWord && !$hasSheet) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            if ($ext === 'xlsx' && $hasSheet && !$hasWord) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+            return '';
+        }
+        if (function_exists('mime_content_type')) {
+            $mime = @mime_content_type($path);
+            if (is_string($mime) && $mime !== '') return strtolower($mime);
+        }
+        if (strncmp($content, '%PDF-', 5) === 0) return 'application/pdf';
+        if (strlen($content) >= 12 && substr($content, 0, 4) === 'RIFF' && substr($content, 8, 4) === 'WEBP') return 'image/webp';
+        if (strncmp($content, "GIF87a", 6) === 0 || strncmp($content, "GIF89a", 6) === 0) return 'image/gif';
+        if (strlen($content) >= 3 && substr($content, 0, 3) === "\xFF\xD8\xFF") return 'image/jpeg';
+        if (strncmp($content, "\x89PNG\r\n\x1A\n", 8) === 0) return 'image/png';
+        if ($ext === 'txt' && strpos($content, "\0") === false && mb_check_encoding($content, 'UTF-8') && !preg_match('/^\s*</', $content)) {
+            return 'text/plain';
+        }
+        return '';
+    }
+
     private static function save(array $file, string $kind, string $module): array
     {
         if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
@@ -55,7 +84,7 @@ class Uploader
         if (preg_match('/<\?php|<\?=|\<script/i', $content)) {
             return [false, '', '', '文件内容不安全，已拒绝'];
         }
-        $mime = mime_content_type($file['tmp_name']) ?: '';
+        $mime = self::detectMime((string)$file['tmp_name'], $content, $ext);
         if ($kind === 'image') {
             if (strpos($mime, 'image/') !== 0) return [false, '', '', '不是有效的图片文件'];
             $info = @getimagesize($file['tmp_name']);
@@ -159,7 +188,7 @@ class Uploader
         $full = PUBLIC_PATH . $publicPath;
         $real = realpath($full);
         $base = realpath(UPLOAD_PATH);
-        if ($real && $base && strpos($real, $base) === 0 && is_file($real)) {
+        if ($real && $base && strpos($real, $base . DIRECTORY_SEPARATOR) === 0 && is_file($real)) {
             @unlink($real);
             Database::run('DELETE FROM `attachments` WHERE `path` = ?', [$publicPath]);
         }

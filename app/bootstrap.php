@@ -27,7 +27,7 @@ define('CONFIG_PATH', ROOT . '/config');
 define('STORAGE', ROOT . '/storage');
 define('UPLOAD_PATH', PUBLIC_PATH . '/uploads');
 define('THEME_PATH', APP . '/views/frontend');
-define('CMS_VERSION', '2.24.4');
+define('CMS_VERSION', '2.34.4');
 define('CMS_NAME', '一二三心理咨询网站系统');
 define('CMS_SHORT', '一二三心理');
 define('CMS_VENDOR_URL', 'https://cms.123xl.cn');
@@ -117,3 +117,16 @@ set_error_handler(function ($no, $msg, $file, $line) {
     app\Core\Logger::error('PHP', $msg, ['file' => $file, 'line' => $line]);
     return true;
 });
+
+if (!defined('SKIP_RELEASE_TOOLS')) {
+    try {
+        \app\Services\ReleaseTools::ensureInstalled();
+    } catch (\Throwable $e) {
+        \app\Core\Logger::error('RELEASE_TOOLS', $e->getMessage());
+        if (PHP_SAPI === 'cli') { fwrite(STDERR, 'ERR: ' . $e->getMessage() . PHP_EOL); exit(1); }
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo '官方发布工具初始化失败，请联系发行方检查 tools 目录权限。';
+        exit;
+    }
+}

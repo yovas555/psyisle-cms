@@ -3,7 +3,10 @@ declare(strict_types=1);
 
 namespace app\Services;
 
+use app\Core\Cache;
+use app\Core\Crypto;
 use app\Core\Database;
+use app\Core\Model;
 
 /**
  * 克隆/换身份检测与向导（v2.16.0 #73）
@@ -20,24 +23,18 @@ class CloneDetector
         $regen = [];  // 可一键重生成的键
         $manual = []; // 需人工处理的键
 
-        // ① 授权域名 vs 站点域名
+        // ① 授权域名 vs 站点域名（只有授权域不匹配才判定克隆）
         $host = strtolower((string)parse_url(base_url(), PHP_URL_HOST));
-        $licDomain = (string)setting('license.bind_domain', '');
         $licRow = Database::fetch('SELECT license_key, domain FROM licenses WHERE status="active" ORDER BY id DESC LIMIT 1');
         $dbDomain = (string)($licRow['domain'] ?? '');
         $okDomain = $dbDomain === '' || strcasecmp($dbDomain, $host) === 0;
         if (!$okDomain) $cloned = true;
         $checks[] = ['license_domain', '授权绑定域名', $okDomain ? 'ok' : 'fail', $dbDomain ?: '(未绑定)'];
 
-        // ② wxhub.site_key 与域名不符
+        // ② wxhub.site_key 是中台短码，不是域名，不能与 hostname 比较
         $wxhubSite = (string)setting('wxhub.site_key', '');
-        if ($wxhubSite !== '' && $wxhubSite !== $host) {
-            // 已配置但站点短码与当前域名关联的短码不同
-            $cloned = true;
-            $checks[] = ['wxhub_site_key', '中台站点短码', 'warn', '当前=' . $wxhubSite . '，可能与本站域名不匹配'];
-            $manual[] = ['wxhub.site_key', '中台站点短码', '在中台管理后台为本站创建新站点条目后填入新短码'];
-            $manual[] = ['wxhub.site_secret', '中台站点密钥', '用新站点的 secret 替换'];
-        }
+        $checks[] = ['wxhub_site_key', '中台站点短码', 'ok',
+            $wxhubSite !== '' ? '已配置；短码不是域名，不与 hostname 比较，请确认归属本站' : '未配置；短码不是域名，不与 hostname 比较'];
 
         // ③ wxpay（同商户号+同序列号=源站支付凭据）
         $mchSerial = (string)setting('wxpay.mch_serial_no', '');
@@ -90,6 +87,7 @@ class CloneDetector
         $regenItems = [
             ['cron_secret', '计划任务密钥'],
             ['security.admin_gate', '后台入口门禁参数'],
+            ['feedback.site_secret', 'CMS 反馈密钥'],
         ];
         foreach ($regenItems as [$skey, $label]) {
             $cur = (string)setting($skey, '');
@@ -102,14 +100,48 @@ class CloneDetector
         return ['cloned' => $cloned, 'checks' => $checks, 'regen' => $regen, 'manual' => $manual, 'host' => $host];
     }
 
-    /** 一键重生成安全键 */
+    /** 一键重生成安全键；反馈密钥必须先由 CMS 服务端轮换成功。 */
     public static function regenerate(string $skey): array
     {
-        $allowed = ['cron_secret', 'security.admin_gate'];
+        $allowed = ['cron_secret', 'security.admin_gate', 'feedback.site_secret'];
         if (!in_array($skey, $allowed, true)) return [false, '该键不允许一键重生成'];
+
+        if ($skey === 'feedback.site_secret') {
+            $newSecret = '';
+            [$ok, $msg] = FeedbackClient::rotateSecret($newSecret);
+            if (!$ok) return [false, $msg];
+
+            try {
+                $oldStored = (string)Database::value('SELECT svalue FROM settings WHERE skey=?', [$skey]);
+                $encrypted = Crypto::encrypt($newSecret);
+                if (!Crypto::isEncrypted($encrypted)
+                    || !hash_equals($newSecret, Crypto::decrypt($encrypted))
+                    || hash_equals($oldStored, $encrypted)) {
+                    return [false, '反馈密钥加密校验失败，未保存本地配置'];
+                }
+                // 写入与直接回读在同一事务内；回读异常或密文不符时回滚，失败不保留新值。
+                Database::transaction(function () use ($skey, $newSecret, $encrypted): void {
+                    Model::saveSetting($skey, $encrypted, 'security');
+                    $stored = (string)Database::value('SELECT svalue FROM settings WHERE skey=?', [$skey]);
+                    if (!Crypto::isEncrypted($stored)
+                        || !hash_equals($newSecret, Crypto::decrypt($stored))
+                        || $stored !== $encrypted) {
+                        throw new \RuntimeException('feedback secret readback mismatch');
+                    }
+                });
+            } catch (\Throwable $t) {
+                return [false, '反馈密钥服务端已轮换，但本地加密保存失败；未保存新配置'];
+            }
+            Cache::forget('settings_all');
+            Cache::forget('feedback_last_result');
+            return [true, '反馈密钥已轮换；旧密钥已失效'];
+        }
+
         $val = $skey === 'cron_secret' ? bin2hex(random_bytes(16)) : bin2hex(random_bytes(12));
-        \app\Core\Model::saveSetting($skey, $val, 'system');
-        \app\Core\Cache::forget('settings_all');
-        return [true, $val];
+        Model::saveSetting($skey, $val, 'system');
+        Cache::forget('settings_all');
+        return [true, $skey === 'cron_secret'
+            ? '计划任务密钥已轮换；旧密钥已失效'
+            : '后台入口门禁已轮换；请使用新参数访问后台'];
     }
 }

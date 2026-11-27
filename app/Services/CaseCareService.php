@@ -127,34 +127,103 @@ class CaseCareService
 
     public static function addFollowup(int $caseId, int $counselorId, array $in): array
     {
-        $case = self::ownedCase($caseId, $counselorId);
-        if (!$case) return self::fail('个案不存在或无权操作');
         $due = (string)($in['due_at'] ?? '');
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $due)) return self::fail('请选择随访日期');
+        if (!self::validDate($due)) return self::fail('请选择有效的随访日期');
+        $bookingId = self::optionalId($in['booking_id'] ?? 0);
+        $sessionId = self::optionalId($in['session_id'] ?? 0);
+        if ($bookingId < 0 || $sessionId < 0) return self::fail('来源预约或会次编号不合法');
+        $source = (string)($in['source'] ?? 'manual');
+        if (!preg_match('/^[a-z][a-z0-9_]{0,31}$/', $source)) return self::fail('随访来源不合法');
+        $sourceKeyRaw = $in['source_key'] ?? '';
+        if (!is_string($sourceKeyRaw)) return self::fail('随访来源幂等键不合法');
+        $sourceKey = trim($sourceKeyRaw);
+        if (mb_strlen($sourceKey, 'UTF-8') > 190) return self::fail('随访来源幂等键不合法');
+        if ($source === 'booking_feedback' && $bookingId === 0) return self::fail('反馈随访必须关联预约');
         $ch = isset(self::FU_CHANNEL[(string)($in['channel'] ?? '')]) ? (string)$in['channel'] : 'phone';
-        $id = Database::insert('case_followups', [
-            'case_id' => $caseId, 'counselor_id' => $counselorId,
-            'due_at' => $due, 'channel' => $ch,
-            'purpose' => str_take(trim((string)($in['purpose'] ?? '')), 200, ''),
-            'status' => 'pending',
-            'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
-        ]);
-        return ['ok' => true, 'id' => $id, 'msg' => '随访已安排'];
+
+        try {
+            return self::transaction(function () use ($caseId, $counselorId, $due, $bookingId, $sessionId, $source, $sourceKey, $ch, $in): array {
+                $case = Database::fetch('SELECT * FROM cases WHERE id=? FOR UPDATE', [$caseId]);
+                if (!$case || !CasePolicy::owns($case, $counselorId) || !in_array((string)$case['status'], ['active', 'closed'], true)) {
+                    return self::fail('个案不存在、无权操作或状态不可安排随访');
+                }
+                $member = Database::fetch("SELECT * FROM members WHERE id=? AND status='active' FOR UPDATE", [(int)$case['member_id']]);
+                if (!$member) return self::fail('来访者会员无效');
+
+                $booking = null;
+                if ($bookingId > 0) {
+                    $booking = Database::fetch('SELECT * FROM bookings WHERE id=? FOR UPDATE', [$bookingId]);
+                    if (!$booking || (int)$booking['counselor_id'] !== $counselorId || (string)$booking['phone'] !== (string)$member['phone']) {
+                        return self::fail('来源预约与个案会员或咨询师不一致');
+                    }
+                    if ($source === 'booking_feedback' && (string)$booking['status'] !== 'completed') {
+                        return self::fail('反馈随访只能关联已完成的预约');
+                    }
+                }
+                $session = null;
+                if ($sessionId > 0) {
+                    $session = Database::fetch('SELECT * FROM case_sessions WHERE id=? FOR UPDATE', [$sessionId]);
+                    if (!$session || (int)$session['case_id'] !== $caseId || (int)$session['counselor_id'] !== $counselorId) {
+                        return self::fail('来源会次与个案或咨询师不一致');
+                    }
+                    if ($booking && (int)$session['booking_id'] !== $bookingId) return self::fail('来源预约与会次不一致');
+                    if ($source === 'booking_feedback' && $booking === null && (int)$session['booking_id'] !== $bookingId) {
+                        return self::fail('反馈随访必须关联预约');
+                    }
+                }
+                if ($sourceKey !== '') {
+                    $existing = Database::fetch('SELECT * FROM case_followups WHERE source_key=?', [$sourceKey]);
+                    if ($existing) {
+                        if ((int)$existing['case_id'] !== $caseId || (int)$existing['counselor_id'] !== $counselorId || (string)$existing['source'] !== $source) {
+                            return self::fail('来源幂等键已用于其他随访');
+                        }
+                        return ['ok' => true, 'id' => (int)$existing['id'], 'msg' => '随访已存在', 'existing' => true];
+                    }
+                }
+                $id = Database::insert('case_followups', [
+                    'case_id' => $caseId,
+                    'booking_id' => $bookingId ?: null,
+                    'session_id' => $sessionId ?: null,
+                    'source' => $source,
+                    'source_key' => $sourceKey !== '' ? $sourceKey : null,
+                    'counselor_id' => $counselorId,
+                    'due_at' => $due,
+                    'channel' => $ch,
+                    'purpose' => str_take(trim((string)($in['purpose'] ?? '')), 200, ''),
+                    'status' => 'pending',
+                    'created_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+                if ($id <= 0) return self::fail('随访创建失败');
+                return ['ok' => true, 'id' => $id, 'msg' => '随访已安排'];
+            });
+        } catch (\PDOException $e) {
+            if ((int)($e->errorInfo[1] ?? 0) === 1062 && $sourceKey !== '') {
+                $existing = Database::fetch('SELECT * FROM case_followups WHERE source_key=?', [$sourceKey]);
+                if ($existing && (int)$existing['case_id'] === $caseId && (int)$existing['counselor_id'] === $counselorId && (string)$existing['source'] === $source) {
+                    return ['ok' => true, 'id' => (int)$existing['id'], 'msg' => '随访已存在', 'existing' => true];
+                }
+            }
+            throw $e;
+        }
     }
 
-    public static function finishFollowup(int $fuId, int $counselorId, string $result, bool $skip = false): array
+    public static function finishFollowup(int $fuId, int $counselorId, int $caseId, string $result, bool $skip = false): array
     {
-        $fu = Database::fetch('SELECT * FROM case_followups WHERE id=?', [$fuId]);
-        if (!$fu) return self::fail('随访不存在');
-        if ((int)$fu['counselor_id'] !== $counselorId) return self::fail('无权操作该随访');
-        if ((string)$fu['status'] !== 'pending') return self::fail('该随访已处理');
+        if ($caseId <= 0) return self::fail('个案不存在或无权操作');
         $status = $skip ? 'skipped' : 'done';
         if (!$skip && trim($result) === '') return self::fail('请简要填写随访结果');
-        Database::run(
-            'UPDATE case_followups SET status=?, done_at=NOW(), result=?, updated_at=NOW() WHERE id=?',
-            [$status, str_take(trim($result), 500, ''), $fuId]
-        );
-        return ['ok' => true, 'msg' => $skip ? '随访已跳过' : '随访已完成'];
+        return Database::transaction(function () use ($fuId, $counselorId, $caseId, $result, $skip, $status): array {
+            $fu = Database::fetch('SELECT * FROM case_followups WHERE id=? AND case_id=? AND counselor_id=? FOR UPDATE', [$fuId, $caseId, $counselorId]);
+            if (!$fu) return self::fail('随访不存在或不属于该个案');
+            if ((string)$fu['status'] !== 'pending') return self::fail('该随访已处理');
+            $changed = Database::run(
+                'UPDATE case_followups SET status=?, done_at=NOW(), result=?, updated_at=NOW() WHERE id=? AND case_id=? AND counselor_id=? AND status=?',
+                [$status, str_take(trim($result), 500, ''), $fuId, $caseId, $counselorId, 'pending']
+            );
+            if ($changed->rowCount() !== 1) return self::fail('随访状态已变化，请刷新后重试');
+            return ['ok' => true, 'msg' => $skip ? '随访已跳过' : '随访已完成'];
+        });
     }
 
     public static function followupsOf(int $caseId, int $counselorId): array
@@ -187,6 +256,25 @@ class CaseCareService
     }
 
     // ==================== 内部 ====================
+
+    private static function validDate(string $date): bool
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return false;
+        $parsed = \DateTime::createFromFormat('!Y-m-d', $date);
+        return $parsed !== false && $parsed->format('Y-m-d') === $date;
+    }
+
+    private static function optionalId($value): int
+    {
+        if ($value === null || $value === '' || $value === 0 || $value === '0') return 0;
+        $id = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        return $id === false ? -1 : (int)$id;
+    }
+
+    private static function transaction(callable $fn): array
+    {
+        return Database::pdo()->inTransaction() ? $fn() : Database::transaction($fn);
+    }
 
     private static function ownedCase(int $caseId, int $counselorId, array $allowStatus = ['active', 'closed']): ?array
     {

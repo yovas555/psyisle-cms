@@ -9,10 +9,11 @@
   <?php if (!$list): ?>
   <p class="muted">还没有预约记录。<a href="<?= url('/booking') ?>">立即预约</a></p>
   <?php else: ?>
+  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
   <table class="table member-table">
     <thead><tr><th>查询码</th><th>日期 / 时段</th><th>状态</th><th>机构备注</th><th>操作</th></tr></thead>
     <tbody>
-    <?php foreach ($list as $b): $canAct = in_array($b['status'], ['pending', 'confirmed'], true);
+    <?php foreach ($list as $b): $canAct = \app\Services\MemberService::canChangeBooking($b);
       $isVideo = stripos((string)$b['method'], '视频') !== false;
       $ps = (string)($b['pay_status'] ?? 'free');
       // 待付费/支付入口自算：不依赖 rtc-pro 的 room_state（申请通道 pending 算不出咨询室状态会导致按钮消失）
@@ -27,6 +28,7 @@
           <?php elseif ($ps === 'free'): ?><span class="chip">免费</span>
           <?php elseif ($needPay): ?><span class="chip draft">待付费</span><?php endif; ?>
         <?php endif; ?>
+        <p class="booking-next muted"><?= e(\app\Services\MemberService::bookingNextStep($b)) ?></p>
       </td>
       <td class="muted"><?= nl2br(e(str_take((string)$b['admin_note'], 60, '…'))) ?></td>
       <td>
@@ -43,6 +45,9 @@
         <?php elseif (($b['room_state'] ?? '') === 'done'): ?>
         <span class="muted">咨询时段已结束</span>
         <?php endif; ?>
+        <?php if ($b['status'] === 'completed' && isset($feedbackByBooking[(int)$b['id']])): ?>
+        <a class="btn <?= (string)$feedbackByBooking[(int)$b['id']]['status'] === 'pending' ? 'btn-primary' : 'btn-ghost' ?> btn-sm" href="<?= url('/member/bookings/' . (int)$b['id'] . '/feedback') ?>"><?= (string)$feedbackByBooking[(int)$b['id']]['status'] === 'pending' ? '填写咨询后反馈' : '查看咨询后反馈' ?></a>
+        <?php endif; ?>
         <?php if ($canAct): ?>
         <details class="member-ops">
           <summary>取消 / 改期</summary>
@@ -57,12 +62,18 @@
             <button class="btn btn-ghost btn-sm" type="submit">申请改期</button>
           </form>
         </details>
-        <?php else: ?><span class="muted">—</span><?php endif; ?>
+        <?php else: ?>
+          <?php if ($b['status'] !== 'completed' || !isset($feedbackByBooking[(int)$b['id']])): ?><span class="muted">—</span><?php endif; ?>
+        <?php endif; ?>
       </td>
     </tr>
     <?php endforeach; ?>
     </tbody>
   </table>
-  <p class="hint">距咨询不足 24 小时无法在线取消/改期，请直接联系机构。改期申请提交后，机构确认后会回电通知。</p>
+  </div>
+  <div class="booking-guide">
+    <p>距咨询开始至少 24 小时，可在线取消或申请改期；不足 24 小时请<a href="<?= url('/contact') ?>">联系机构</a>。改期申请提交后不会自动换时段，须等机构确认。</p>
+    <a href="<?= url('/booking/prepare') ?>" target="_blank" rel="noopener">查看咨询前准备与完整规则</a>
+  </div>
   <?php endif; ?>
 </div>

@@ -77,6 +77,15 @@ class Tool extends Base
         $skey = (string)$req->post('skey', '');
         [$ok, $msg] = \app\Services\CloneDetector::regenerate($skey);
         $this->audit('Tool.cloneRegen', 'settings', null, ['skey' => $skey]);
+        if ($ok) {
+            // 安全键值只落库，绝不进入 flash；审计也只记录键名。
+            $safeMessages = [
+                'cron_secret' => '计划任务密钥已轮换；旧密钥已失效',
+                'security.admin_gate' => '后台入口门禁已轮换；请使用新参数访问后台',
+                'feedback.site_secret' => '反馈密钥已轮换；旧密钥已失效',
+            ];
+            $msg = $safeMessages[$skey] ?? '安全配置已更新';
+        }
         Session::flash($ok ? 'success' : 'error', $msg);
         \app\Core\ResponseRedirect('/admin/tools/clone-wizard');
     }

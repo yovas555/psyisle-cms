@@ -41,6 +41,7 @@ $segGuide = $seg_guides[$baseSeg] ?? null;
 <?php endif; ?>
 <div class="toolbar">
   <a class="btn btn-primary" href="<?= $editBase ?>/create">＋ 新增</a>
+  <?php if ($baseSeg === 'counselors'): ?><a class="btn btn-ghost" href="/admin/counselor-profile-reviews">资质审核队列</a><?php endif; ?>
   <?php if (in_array($baseSeg, ['articles', 'pages'], true)): ?>
   <a class="btn btn-ghost" href="<?= $editBase ?>/trash">回收站</a>
   <?php endif; ?>
@@ -77,6 +78,9 @@ $segGuide = $seg_guides[$baseSeg] ?? null;
       <a class="btn btn-sm btn-ghost" href="/admin/pages/<?= (int)$r['page_id'] ?>/edit" title="编辑该导航指向的单页内容">编辑内容</a>
       <?php endif; ?>
       <a class="btn btn-sm btn-ghost" href="<?= $editBase ?>/<?= $r['id'] ?>/edit">编辑</a>
+      <?php if ($baseSeg === 'counselors'): ?>
+      <a class="btn btn-sm btn-ghost" href="/admin/counselors/<?= (int)$r['id'] ?>/verification">信任核验</a>
+      <?php endif; ?>
       <?php if (array_key_exists('status', $r) || array_key_exists('is_featured', $r)):
         $on = is_string($r['status'] ?? 1)
             ? (($r['status'] ?? '') === 'published' || (string)($r['status'] ?? '0') === '1')

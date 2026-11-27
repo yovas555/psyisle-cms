@@ -214,7 +214,226 @@
       fi.click();
     });
   }
-  document.querySelectorAll('.img-pick').forEach(bindUpload);
+
+  function bindAvatarCropper(pick) {
+    var input = pick.querySelector('input[type=text]');
+    var preview = pick.querySelector('.img-preview');
+    var uploadBtn = pick.querySelector('.js-crop');
+    var recropBtn = pick.querySelector('.js-recrop');
+    if (!input || !uploadBtn) return;
+
+    function syncPreview() {
+      var hasImage = /^\/uploads\//.test(input.value.trim());
+      if (preview) {
+        preview.hidden = !hasImage;
+        if (hasImage) preview.src = input.value.trim();
+      }
+      if (recropBtn) recropBtn.hidden = !hasImage;
+    }
+    input.addEventListener('change', syncPreview);
+
+    function open(source) {
+      var previousFocus = document.activeElement;
+      var modal = document.createElement('div');
+      modal.className = 'avatar-crop-modal';
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      modal.setAttribute('aria-label', '裁剪咨询师头像');
+      modal.innerHTML = '<div class="avatar-crop-dialog">' +
+        '<div class="avatar-crop-head"><div><b>裁剪咨询师头像</b><span>拖动图片调整位置，输出 960×960 方形头像</span></div>' +
+        '<button type="button" class="avatar-crop-close" aria-label="关闭">×</button></div>' +
+        '<div class="avatar-crop-body"><div class="avatar-crop-canvas-wrap"><canvas class="avatar-crop-canvas" width="560" height="560" aria-label="头像裁剪区域"></canvas>' +
+        '<span class="avatar-crop-empty">请选择图片</span></div><div class="avatar-crop-controls">' +
+        '<label class="avatar-crop-file">选择图片<input type="file" accept="image/jpeg,image/png,image/webp"></label>' +
+        '<label class="avatar-crop-range">缩放<input type="range" min="1" max="3" step="0.01" value="1"><output>100%</output></label>' +
+        '<div class="avatar-crop-rotate"><button type="button" data-rotate="-90" aria-label="向左旋转">↶ 左转</button>' +
+        '<button type="button" data-rotate="90" aria-label="向右旋转">↷ 右转</button><button type="button" data-reset>复位</button></div>' +
+        '<div class="avatar-crop-previews"><div><img alt="列表预览"><span>列表 210</span></div><div><img alt="圆形预览"><span>圆形 96</span></div></div>' +
+        '<p class="avatar-crop-error" role="alert" hidden></p></div></div>' +
+        '<div class="avatar-crop-foot"><span>原图不会被覆盖；取消不会改动当前头像。</span>' +
+        '<div><button type="button" class="btn btn-ghost avatar-crop-cancel">取消</button>' +
+        '<button type="button" class="btn btn-primary avatar-crop-apply" disabled>应用并上传</button></div></div></div>';
+      document.body.appendChild(modal);
+
+      var canvas = modal.querySelector('canvas');
+      var ctx = canvas.getContext('2d');
+      var fileInput = modal.querySelector('input[type=file]');
+      var range = modal.querySelector('input[type=range]');
+      var output = modal.querySelector('output');
+      var applyBtn = modal.querySelector('.avatar-crop-apply');
+      var error = modal.querySelector('.avatar-crop-error');
+      var empty = modal.querySelector('.avatar-crop-empty');
+      var previewImages = modal.querySelectorAll('.avatar-crop-previews img');
+      var image = null;
+      var objectUrl = null;
+      var zoom = 1;
+      var rotation = 0;
+      var offsetX = 0;
+      var offsetY = 0;
+      var drag = null;
+      var onKey = null;
+      var view = canvas.width;
+
+      function metrics() {
+        if (!image) return null;
+        var turned = Math.abs(rotation % 180) === 90;
+        var rw = turned ? image.naturalHeight : image.naturalWidth;
+        var rh = turned ? image.naturalWidth : image.naturalHeight;
+        var scale = Math.max(view / rw, view / rh) * zoom;
+        return { rw: rw, rh: rh, scale: scale };
+      }
+      function clampOffsets() {
+        var m = metrics();
+        if (!m) return;
+        var maxX = Math.max(0, (m.rw * m.scale - view) / 2);
+        var maxY = Math.max(0, (m.rh * m.scale - view) / 2);
+        offsetX = Math.max(-maxX, Math.min(maxX, offsetX));
+        offsetY = Math.max(-maxY, Math.min(maxY, offsetY));
+      }
+      function drawTo(target, size) {
+        var targetCtx = target.getContext('2d');
+        var m = metrics();
+        targetCtx.setTransform(1, 0, 0, 1, 0, 0);
+        targetCtx.clearRect(0, 0, size, size);
+        targetCtx.fillStyle = '#fff';
+        targetCtx.fillRect(0, 0, size, size);
+        if (!image || !m) return;
+        var ratio = size / view;
+        targetCtx.translate((view / 2 + offsetX) * ratio, (view / 2 + offsetY) * ratio);
+        targetCtx.rotate(rotation * Math.PI / 180);
+        targetCtx.scale(m.scale * ratio, m.scale * ratio);
+        targetCtx.imageSmoothingEnabled = true;
+        targetCtx.imageSmoothingQuality = 'high';
+        targetCtx.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
+      }
+      function render() {
+        clampOffsets();
+        drawTo(canvas, view);
+        empty.hidden = !!image;
+        range.value = String(zoom);
+        output.value = Math.round(zoom * 100) + '%';
+        applyBtn.disabled = !image;
+        previewImages.forEach(function (img) {
+          if (image) img.src = canvas.toDataURL('image/jpeg', 0.82);
+          else img.removeAttribute('src');
+        });
+      }
+      function showError(message) {
+        error.textContent = message;
+        error.hidden = false;
+      }
+      function load(src, isObject) {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        objectUrl = isObject ? src : null;
+        error.hidden = true;
+        var next = new Image();
+        next.onload = function () {
+          image = next;
+          zoom = 1; rotation = 0; offsetX = 0; offsetY = 0;
+          render();
+        };
+        next.onerror = function () { image = null; render(); showError('图片读取失败，请换一张 JPG、PNG 或 WebP 图片'); };
+        next.src = src;
+      }
+      function close() {
+        if (onKey) document.removeEventListener('keydown', onKey);
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        modal.remove();
+        if (previousFocus && previousFocus.focus) previousFocus.focus();
+      }
+
+      modal.querySelector('.avatar-crop-close').addEventListener('click', close);
+      modal.querySelector('.avatar-crop-cancel').addEventListener('click', close);
+      modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+      onKey = function (e) {
+        if (e.key === 'Escape') { e.preventDefault(); close(); }
+      };
+      document.addEventListener('keydown', onKey);
+      fileInput.addEventListener('change', function () {
+        var file = fileInput.files[0];
+        if (!file) return;
+        if (!/^image\/(jpeg|png|webp)$/.test(file.type)) { showError('仅支持 JPG、PNG 或 WebP 图片'); return; }
+        if (file.size > 20 * 1024 * 1024) { showError('图片大小不能超过 20MB'); return; }
+        load(URL.createObjectURL(file), true);
+        fileInput.value = '';
+      });
+      range.addEventListener('input', function () { zoom = Number(range.value); render(); });
+      modal.querySelectorAll('[data-rotate]').forEach(function (btn) {
+        btn.addEventListener('click', function () { rotation = (rotation + Number(btn.getAttribute('data-rotate')) + 360) % 360; render(); });
+      });
+      modal.querySelector('[data-reset]').addEventListener('click', function () { zoom = 1; rotation = 0; offsetX = 0; offsetY = 0; render(); });
+      canvas.addEventListener('pointerdown', function (e) {
+        if (!image) return;
+        drag = { id: e.pointerId, x: e.clientX, y: e.clientY, ox: offsetX, oy: offsetY };
+        canvas.setPointerCapture(e.pointerId);
+        canvas.classList.add('is-dragging');
+      });
+      canvas.addEventListener('pointermove', function (e) {
+        if (!drag || drag.id !== e.pointerId) return;
+        var rect = canvas.getBoundingClientRect();
+        offsetX = drag.ox + (e.clientX - drag.x) * view / rect.width;
+        offsetY = drag.oy + (e.clientY - drag.y) * view / rect.height;
+        render();
+      });
+      function endDrag(e) {
+        if (drag && drag.id === e.pointerId) { drag = null; canvas.classList.remove('is-dragging'); }
+      }
+      canvas.addEventListener('pointerup', endDrag);
+      canvas.addEventListener('pointercancel', endDrag);
+      canvas.addEventListener('wheel', function (e) {
+        if (!image) return;
+        e.preventDefault();
+        zoom = Math.max(1, Math.min(3, zoom * (e.deltaY < 0 ? 1.08 : 0.92)));
+        render();
+      }, { passive: false });
+
+      applyBtn.addEventListener('click', function () {
+        if (!image) return;
+        error.hidden = true;
+        applyBtn.disabled = true;
+        applyBtn.textContent = '上传中…';
+        var outputCanvas = document.createElement('canvas');
+        outputCanvas.width = 960; outputCanvas.height = 960;
+        drawTo(outputCanvas, 960);
+        outputCanvas.toBlob(function (blob) {
+          if (!blob) { applyBtn.disabled = false; applyBtn.textContent = '应用并上传'; showError('头像生成失败，请重试'); return; }
+          var fd = new FormData();
+          fd.append('file', blob, 'avatar.jpg');
+          fd.append('module', 'counselor');
+          fd.append('_token', CSRF_TOKEN);
+          fetch(pick.getAttribute('data-upload'), { method: 'POST', body: fd, credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              if (!d.ok) throw new Error(d.msg || '上传失败');
+              input.value = d.path;
+              syncPreview();
+              if (preview) preview.src = d.path + '?v=' + Date.now();
+              close();
+            })
+            .catch(function (err) {
+              applyBtn.disabled = false;
+              applyBtn.textContent = '应用并上传';
+              showError(err.message || '上传失败，请重试');
+            });
+        }, 'image/jpeg', 0.92);
+      });
+
+      render();
+      modal.querySelector('.avatar-crop-close').focus();
+      if (source) load(source, false);
+    }
+
+    uploadBtn.addEventListener('click', function () { open(''); });
+    if (recropBtn) recropBtn.addEventListener('click', function () {
+      if (/^\/uploads\//.test(input.value.trim())) open(input.value.trim());
+      else { input.focus(); alert('请选择已上传的 /uploads/ 图片'); }
+    });
+    syncPreview();
+  }
+  document.querySelectorAll('.img-pick').forEach(function (pick) {
+    if (pick.getAttribute('data-crop') === 'square') bindAvatarCropper(pick);
+    else bindUpload(pick);
+  });
 
   // 设置页 tab
   document.querySelectorAll('#settingTabs .tab').forEach(function (tab) {

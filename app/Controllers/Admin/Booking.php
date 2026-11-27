@@ -7,6 +7,7 @@ use app\Core\Csrf;
 use app\Core\Database;
 use app\Core\Request;
 use app\Core\Session;
+use app\Services\BookingLifecycle;
 use app\Services\NotifyService;
 
 class Booking extends Base
@@ -143,7 +144,10 @@ class Booking extends Base
              WHERE b.id=?', [(int)$p['id']]
         );
         if (!$b) { Session::flash('error', '预约不存在'); \app\Core\ResponseRedirect('/admin/bookings'); }
-        $this->view('booking/detail', ['b' => $b, 'title' => '预约详情 #' . $b['id']]);
+        $this->view('booking/detail', [
+            'b' => $b, 'title' => '预约详情 #' . $b['id'],
+            'statusEvents' => Database::fetchAll('SELECT * FROM booking_status_events WHERE booking_id=? ORDER BY id DESC LIMIT 100', [(int)$b['id']]),
+        ]);
     }
 
     public function setStatus(Request $req, array $p): void
@@ -155,22 +159,20 @@ class Booking extends Base
         if (!in_array($status, ['pending','confirmed','rescheduled','completed','cancelled'], true)) {
             Session::flash('error', '状态不合法'); \app\Core\ResponseRedirect('/admin/bookings/' . $id . '/edit');
         }
-        $old = (string)(Database::value('SELECT status FROM bookings WHERE id=?', [$id]) ?? '');
-        Database::update('bookings', [
-            'status' => $status,
-            'admin_note' => $note ?: null,
-            'updated_at' => date('Y-m-d H:i:s'),
-        ], 'id=?', [$id]);
-        $this->audit('booking.status', 'bookings', $id, ['status' => $status, 'note' => $note]);
-        // v2.12.0：预约状态变更 Hook（referral-pro 用于确认推荐发放积分）
-        $b0 = Database::fetch('SELECT phone, name FROM bookings WHERE id=?', [$id]);
-        \app\Core\Hook::fire('booking.status_changed', ['booking_id' => $id, 'status' => $status, 'phone' => $b0['phone'] ?? '', 'name' => $b0['name'] ?? '']);
-        // v2.17.0：状态实际变化才通知，会员+咨询师双侧统一出口
-        if ($status !== $old) {
-            $b = Database::fetch('SELECT * FROM bookings WHERE id=?', [$id]);
-            if ($b) { self::notifyStatusChange($b, $status); }
+        $actor = Session::get('admin_user');
+        [$ok, $message, $b, $changed] = BookingLifecycle::transition(
+            $id, $status, (int)($actor['id'] ?? 0), (string)(($actor['display_name'] ?? '') ?: ($actor['username'] ?? '管理员')), $note
+        );
+        if (!$ok) {
+            Session::flash('error', $message);
+            \app\Core\ResponseRedirect('/admin/bookings/' . $id . '/edit');
         }
-        Session::flash('success', '预约状态已更新');
+        $this->audit('booking.status', 'bookings', $id, ['status' => $status, 'note' => $note, 'changed' => $changed]);
+        if ($changed) {
+            \app\Core\Hook::fire('booking.status_changed', ['booking_id' => $id, 'status' => $status, 'phone' => $b['phone'] ?? '', 'name' => $b['name'] ?? '']);
+            self::notifyStatusChange($b, $status);
+        }
+        Session::flash('success', $message);
         \app\Core\ResponseRedirect('/admin/bookings');
     }
 
@@ -209,8 +211,37 @@ class Booking extends Base
     public function delete(Request $req, array $p): void
     {
         Csrf::guard();
-        Database::delete('bookings', 'id=?', [(int)$p['id']]);
-        $this->audit('booking.delete', 'bookings', (int)$p['id']);
+        $id = (int)$p['id'];
+        $booking = Database::fetch('SELECT status FROM bookings WHERE id=?', [$id]);
+        if (!$booking || !in_array((string)$booking['status'], ['completed', 'cancelled'], true)) {
+            Session::flash('error', '仅已完成或已取消的预约可删除');
+            \app\Core\ResponseRedirect('/admin/bookings/' . $id . '/edit');
+        }
+        try {
+            Database::transaction(function () use ($id): void {
+            $booking = Database::fetch('SELECT status FROM bookings WHERE id=? FOR UPDATE', [$id]);
+            if (!$booking || !in_array((string)$booking['status'], ['completed', 'cancelled'], true)) {
+                throw new \RuntimeException('预约状态已变化，不能删除');
+            }
+            $references = [
+                '咨询后反馈' => 'SELECT id FROM booking_feedbacks WHERE booking_id=? LIMIT 1',
+                '个案会次' => 'SELECT id FROM case_sessions WHERE booking_id=? LIMIT 1',
+                '个案随访' => 'SELECT id FROM case_followups WHERE booking_id=? LIMIT 1',
+                '套餐流水' => 'SELECT id FROM package_ledger WHERE booking_id=? LIMIT 1',
+            ];
+            foreach ($references as $label => $sql) {
+                if (Database::value($sql, [$id]) !== null) {
+                    throw new \RuntimeException('该预约已关联' . $label . '，不能删除；请先由业务负责人核对留痕');
+                }
+            }
+            Database::run('DELETE FROM booking_status_events WHERE booking_id=?', [$id]);
+            Database::delete('bookings', 'id=?', [$id]);
+            });
+        } catch (\RuntimeException $e) {
+            Session::flash('error', $e->getMessage());
+            \app\Core\ResponseRedirect('/admin/bookings/' . $id . '/edit');
+        }
+        $this->audit('booking.delete', 'bookings', $id);
         Session::flash('success', '已删除');
         \app\Core\ResponseRedirect('/admin/bookings');
     }

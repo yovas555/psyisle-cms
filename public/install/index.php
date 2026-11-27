@@ -4,6 +4,11 @@ declare(strict_types=1);
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 
 $ROOT = dirname(dirname(__DIR__));
+require_once $ROOT . '/app/Core/PasswordPolicy.php';
+if (!is_dir($ROOT . '/storage') && !@mkdir($ROOT . '/storage', 0755, true) && !is_dir($ROOT . '/storage')) {
+    http_response_code(500);
+    exit('storage 目录创建失败，请检查站点目录权限。');
+}
 $locked = is_file($ROOT . '/storage/installed.json');
 
 function ienv(string $k): string
@@ -45,12 +50,20 @@ if ($_SERVER['REQUEST_METHOD'] ?? '' === 'POST') {
             'email' => ienv('admin_email'),
         ];
         $siteName = ienv('site_name') ?: '心理咨询中心';
-        if ($admin['password'] === '' || mb_strlen($admin['password']) < 8) {
-            $msg = '管理员密码至少 8 位';
+        $pwdErr = \app\Core\PasswordPolicy::check($admin['password']);
+        if ($pwdErr !== null) {
+            $msg = $pwdErr;
         } elseif ($db['user'] === '') {
             $msg = '请填写数据库用户名';
         } else {
             try {
+                $publicKeyFile = __DIR__ . '/../../tools/issuer_public_key.txt';
+                $issuerPublicKey = is_file($publicKeyFile) && !is_link($publicKeyFile)
+                    ? trim((string)file_get_contents($publicKeyFile)) : '';
+                $decodedPublicKey = base64_decode($issuerPublicKey, true);
+                if ($decodedPublicKey === false || strlen($decodedPublicKey) !== 32) {
+                    throw new RuntimeException('发行包缺少有效 tools/issuer_public_key.txt，无法配置官方升级验签');
+                }
                 $dsn = "mysql:host={$db['host']};port={$db['port']};charset=utf8mb4";
                 $pdo = new PDO($dsn, $db['user'], $db['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
                 // 建库
@@ -81,6 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] ?? '' === 'POST') {
                     . "    ],\n"
                     . "    'cron_secret' => " . var_export($secret, true) . ",\n"
                     . "    'license_secret' => " . var_export($licSecret, true) . ",\n"
+                    . "    'issuer_public_key' => " . var_export($issuerPublicKey, true) . ",\n"
                     . "    'stats_salt' => " . var_export($statsSalt, true) . ",\n"
                     . "];\n";
                 file_put_contents($ROOT . '/config/config.php', $config);
@@ -172,7 +186,7 @@ h2{font-size:15px;margin:26px 0 4px}
     <div class="grid">
       <div><label>用户名</label><input name="admin_user" value="admin"></div>
       <div><label>邮箱</label><input name="admin_email" type="email"></div>
-      <div><label>密码（≥8位）</label><input name="admin_pass" type="password"></div>
+      <div><label><?= e(\app\Core\PasswordPolicy::RULE_TEXT) ?></label><input name="admin_pass" type="password"></div>
     </div>
     <h2>4. 站点名称</h2>
     <label>机构 / 站点名称</label><input name="site_name" value="" placeholder="如：XX心理咨询中心">

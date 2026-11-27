@@ -19,7 +19,7 @@
   <a class="btn btn-ghost" href="/admin/bookings/export" download>导出 CSV</a>
 </div>
 
-<table class="table table-hover">
+<div class="table-wrap"><table class="table table-hover">
   <thead><tr><th>#</th><th>姓名</th><th>手机</th><th>服务/咨询师</th><th>期望时间</th><th>方式</th><th>来源</th><th>状态</th><th>提交时间</th><th>操作</th></tr></thead>
   <tbody>
   <?php if (!$rows): ?><tr><td colspan="10" class="empty">暂无预约</td></tr><?php endif; ?>
@@ -38,7 +38,9 @@
         <input type="hidden" name="admin_note" value="<?= e((string)$b['admin_note']) ?>">
         <select name="status" onchange="this.form.submit()" title="下拉快捷修改状态">
           <?php foreach ($statusText as $k => $v): ?>
+          <?php if ($b['status'] === $k || \app\Services\BookingLifecycle::canTransition((string)$b['status'], $k)): ?>
           <option value="<?= $k ?>" <?= $b['status'] === $k ? 'selected' : '' ?>><?= $v ?></option>
+          <?php endif; ?>
           <?php endforeach; ?>
         </select>
       </form>
@@ -48,7 +50,7 @@
   </tr>
   <?php endforeach; ?>
   </tbody>
-</table>
+</table></div>
 
 <?php if ($pages > 1): ?>
 <nav class="pagination">

@@ -54,13 +54,23 @@ class UpgradeApi
         [$lic, $why, $code] = DistributeService::guard($license, $domain, $nonce, (string)($_SERVER['REMOTE_ADDR'] ?? ''));
         if (!$lic) { $this->jsonFail($why, $code); }
 
-        // 核心包：仅当远端 active 版本比客户站新时给 update；按客户版本选可直达的最高阶梯包
+        // 核心包：先完整 inspect，损坏或与登记不一致时 check 明确失败，绝不降级为“无更新”。
         $core = DistributeService::latestCore($clientVer);
+        $coreMeta = null;
+        if ($core) {
+            [$coreMeta, $packageError] = DistributeService::inspectPackage($core);
+            if (!$coreMeta) {
+                DistributeService::log('deny', $license, $domain, (string)($_SERVER['REMOTE_ADDR'] ?? ''), '核心包校验失败：' . $packageError, 'deny');
+                $this->jsonFail('最新核心升级包校验失败：' . $packageError, 409);
+            }
+        }
+        // 仅当远端 active 版本比客户站新时给 update；按客户版本选可直达的最高阶梯包。
         $update = null;
-        if ($core && preg_match('/^\d+\.\d+\.\d+$/', $clientVer) && version_compare($core['version'], $clientVer, '>')) {
+        if ($coreMeta && preg_match('/^\d+\.\d+\.\d+$/', $clientVer) && version_compare($coreMeta['version'], $clientVer, '>')) {
             $update = [
-                'kind' => 'core', 'version' => $core['version'], 'md5' => $core['md5'],
-                'size' => (int)$core['size'], 'min_from' => $core['min_from'],
+                'kind' => 'core', 'version' => $coreMeta['version'], 'md5' => $coreMeta['md5'],
+                'size' => (int)$coreMeta['size'], 'min_from' => $coreMeta['min_from'],
+                'package_type' => $coreMeta['package_type'], 'plugin_policy' => $coreMeta['plugin_policy'],
                 'released_at' => $core['released_at'], 'changelog' => str_take((string)($core['changelog'] ?? ''), 400, ''),
             ];
         }
@@ -115,12 +125,18 @@ class UpgradeApi
             }
             if (!$pkg) $this->jsonFail('插件包不存在或未发布', 404);
             // v2.23.0 插件安装令：下载插件前校验该站点(域名)是否购买了该插件（授权位在 cms 官网）
-            if (!DistributeService::entitledToPlugin($domain, $slug)) {
-                DistributeService::log('deny', $license, $domain, (string)($_SERVER['REMOTE_ADDR'] ?? ''), '未购买插件 ' . $slug);
+            if (!DistributeService::entitledToPlugin($lic, $domain, $slug)) {
+                DistributeService::log('deny', $license, $domain, (string)($_SERVER['REMOTE_ADDR'] ?? ''), '未购买插件 ' . $slug, 'deny');
                 $this->jsonFail('未购买该插件或授权已过期', 403);
             }
         } else {
             $this->jsonFail('kind 非法', 400);
+        }
+        // 签发任何下载令牌前再次完整 inspect；核心和插件都必须通过 HMAC/Ed25519、路径与清单门禁。
+        [$meta, $packageError] = DistributeService::inspectPackage($pkg);
+        if (!$meta) {
+            DistributeService::log('deny', $license, $domain, (string)($_SERVER['REMOTE_ADDR'] ?? ''), '令牌包校验失败：' . $packageError, 'deny');
+            $this->jsonFail('升级包校验失败：' . $packageError, 409);
         }
         $t = DistributeService::issueToken($lic, $pkg, $nonce);
         json_out(['ok' => true] + $t);
@@ -134,7 +150,7 @@ class UpgradeApi
         if ($t === '' || $dot === false) { http_response_code(400); exit('bad token'); }
         [$payload, $why] = DistributeService::consumeToken(substr($t, 0, $dot), substr($t, $dot + 1));
         if (!$payload) {
-            DistributeService::log('deny', '', '', (string)($_SERVER['REMOTE_ADDR'] ?? ''), $why);
+            DistributeService::log('deny', '', '', (string)($_SERVER['REMOTE_ADDR'] ?? ''), $why, 'deny');
             http_response_code(403);
             exit($why);
         }
@@ -142,7 +158,7 @@ class UpgradeApi
             'kind' => $payload['kind'], 'file_path' => 'storage/releases/' . (string)$payload['file'], 'md5' => $payload['md5'],
         ]);
         if (!$path) {
-            DistributeService::log('deny', (string)$payload['license'], (string)$payload['domain'], (string)($_SERVER['REMOTE_ADDR'] ?? ''), '包文件缺失或 md5 不符');
+            DistributeService::log('deny', (string)$payload['license'], (string)$payload['domain'], (string)($_SERVER['REMOTE_ADDR'] ?? ''), '包文件缺失或 md5 不符', 'deny');
             http_response_code(404);
             exit('package unavailable');
         }

@@ -46,7 +46,12 @@ class License extends Base
     public function rebuildIntegrity(Request $req, array $p): void
     {
         Csrf::guard();
-        \app\Services\LicenseService::rebuildIntegrityBaseline();
+        try {
+            LicenseService::rebuildIntegrityBaseline();
+        } catch (\Throwable $t) {
+            Session::flash('error', '完整性基线重建失败：' . $t->getMessage());
+            \app\Core\ResponseRedirect('/admin/license');
+        }
         $this->audit('license.integrity_rebuild');
         Session::flash('success', '完整性基线已重建（以当前核心文件为准）');
         \app\Core\ResponseRedirect('/admin/license');

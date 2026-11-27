@@ -32,6 +32,11 @@
     <b>建议绑定微信并关注服务号</b>——用于接收咨询预约、咨询开始提醒与站内消息推送。绑定方式：微信内打开本站登录页，点「微信登录（中台）」完成一次授权即可。
   </div>
   <?php endif; ?>
+  <?php if (empty($hasPwd)): ?>
+  <div class="alert alert-warning" style="border-radius:12px;margin-top:14px">
+    <b>您还未设置登录密码</b>——微信注册的账号默认无密码。请到 <a href="<?= url('/member/settings') ?>">会员设置</a> 的「密码」区设置密码（当前密码留空即可），设置后可用手机号+密码快捷登录。
+  </div>
+  <?php endif; ?>
   <div class="member-grid">
     <a class="member-card" href="<?= url('/member/bookings') ?>">
       <b>我的预约</b>
@@ -96,7 +101,7 @@
     <tr>
       <td><?= e((string)$b['prefer_date']) ?></td>
       <td><?= e((string)$b['prefer_slot']) ?></td>
-      <td><span class="chip"><?= e(['pending' => '待确认', 'confirmed' => '已确认', 'rescheduled' => '已改期'][$b['status']] ?? $b['status']) ?></span></td>
+      <td><span class="chip"><?= e(['pending' => '待确认', 'confirmed' => '已确认', 'rescheduled' => '已改期', 'completed' => '已完成', 'cancelled' => '已取消'][$b['status']] ?? $b['status']) ?></span></td>
     </tr>
     <?php endforeach; ?>
   </table>

@@ -1,7 +1,7 @@
 {
     "slug": "mail-notify",
     "name": "邮件通知",
-    "version": "1.1.2",
+    "version": "1.1.3",
     "author": "PsyIsle Official",
     "description": "把预约、咨询留言、访客提问、AI 转人工、活动报名、系统事件、授权变更等关键事件实时推送到管理员/值班邮箱。支持多收件人、类型开关、SMTP 自主配置、失败自动入队重试。",
     "min_cms_version": "1.9.0",
@@ -160,6 +160,6 @@
             "default": "1"
         }
     ],
-    "signature": "TYYwGFmlwFed/LuKUdvkTY3dGTnMp2t+NTGrlD9l8/Efqpm4lR0lX/3wn9LSDUF5C8FxxXR1/ck2FCAr0lJfDQ==",
-    "changelog": "v1.1.2：后台导航分组（v2.8.1 导航重组）\n危机预警即时送达改为核心强制（不可配置关闭）；免打扰时段延迟不丢失"
+    "signature": "M4/SYH0Ex20mMjNuLxwFISZBNPUIXcS9VQ/OZoYKs2eSjpeWW53P1hMVVKA/CgHG5NrF9cacyhV7kswb5uNNBQ==",
+    "changelog": "v1.1.3：紧急直发部分成功时仅将失败收件人重新入队，避免重复邮件；增加付款成功通知接收回执\nv1.1.2：后台导航分组（v2.8.1 导航重组）\n危机预警即时送达改为核心强制（不可配置关闭）；免打扰时段延迟不丢失"
 }

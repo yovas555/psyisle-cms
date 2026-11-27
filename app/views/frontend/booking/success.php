@@ -11,6 +11,7 @@
       <p>感谢信任，<?= e($b['name']) ?>。我们已收到你的预约，会尽快与你电话或短信确认时间。</p>
       <?php endif; ?>
       <p class="muted">本预约已关联你的会员账号，进度与支付可随时在<a href="<?= url('/member/bookings') ?>">会员中心 → 我的预约</a>查看。</p>
+      <p class="booking-prepare-link"><a href="<?= url('/booking/prepare') ?>" target="_blank" rel="noopener">查看咨询前准备与取消改期规则</a></p>
       <?php if (($payBooking ?? '') === 'unpaid' && (int)($payAmount ?? 0) > 0): $bid = (int)(\app\Core\Database::value('SELECT id FROM bookings WHERE code=?', [$b['code']] ?? [''])); ?>
       <div class="alert alert-warning" style="margin-top:14px">
         本次为<b>线上视频咨询</b>，费用 <b><?= number_format(((int)$payAmount) / 100, 2) ?> 元</b>，<b>支付完成后预约即自动生效</b>（无需等待确认）。

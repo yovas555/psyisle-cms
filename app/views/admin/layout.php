@@ -162,17 +162,25 @@ try {
     $isCounselorWs = $perms === ['counselor_workspace'];
 } catch (\Throwable $t) {}
 if ($isCounselorWs):
-    $cwActive = fn($k) => strpos($seg, $k) !== false ? ' class="active"' : '';
+    $cwPath = strtok($seg, '?') ?: '/admin/counselor-home';
+    $cwActive = function (string $path) use ($cwPath): string {
+        $active = $cwPath === $path || strpos($cwPath, $path . '/') === 0;
+        return $active ? ' class="active"' : '';
+    };
+    $cwItems = [
+        ['总览', '/admin/counselor-home'],
+        ['待办', '/admin/counselor-home/todos'],
+        ['日程', '/admin/counselor-home/calendar'],
+        ['结算与课时', '/admin/counselor-home/settlement'],
+        ['个案与疗程反馈', '/admin/counselor-home/cases'],
+    ];
 ?>
 <header class="mainnav">
   <a class="mainnav-brand" href="/admin/counselor-home"><span class="brand-mark">123</span><span class="txt">咨询师工作台</span></a>
   <nav class="mainnav-tabs">
-    <a class="mainnav-tab<?= strpos($seg, 'counselor-home') !== false && strpos($seg, 'profile') === false && strpos($seg, 'bookings') === false && strpos($seg, 'schedule') === false && strpos($seg, 'notes') === false && strpos($seg, 'cases') === false ? ' active' : '' ?>" href="/admin/counselor-home">总览</a>
-    <a class="mainnav-tab<?= strpos($seg, '/profile') !== false ? ' active' : '' ?>" href="/admin/counselor-home/profile">我的资料</a>
-    <a class="mainnav-tab<?= strpos($seg, '/bookings') !== false ? ' active' : '' ?>" href="/admin/counselor-home/bookings">我的预约</a>
-    <a class="mainnav-tab<?= strpos($seg, '/schedule') !== false ? ' active' : '' ?>" href="/admin/counselor-home/schedule">我的排班</a>
-    <a class="mainnav-tab<?= strpos($seg, '/cases') !== false ? ' active' : '' ?>" href="/admin/counselor-home/cases">个案管理</a>
-    <a class="mainnav-tab<?= strpos($seg, '/notes') !== false ? ' active' : '' ?>" href="/admin/counselor-home/notes">咨询小结与作业</a>
+    <?php foreach ($cwItems as [$label, $path]): ?>
+    <a class="mainnav-tab<?= $cwActive($path) ? ' active' : '' ?>" href="<?= e($path) ?>"><?= e($label) ?></a>
+    <?php endforeach; ?>
   </nav>
   <div class="mainnav-right">
     <?php if ($lic['state'] === 'none' || $lic['warn']): ?><a class="top-tip warn" href="/admin/license"><?= e($lic['warn']) ?></a><?php endif; ?>
@@ -184,12 +192,16 @@ if ($isCounselorWs):
 <aside class="side">
   <div class="side-domain-label">工作台目录</div>
   <nav class="side-nav">
-    <a href="/admin/counselor-home"<?= $cwActive('/admin/counselor-home') && strpos($seg, '/admin/counselor-home/') === false ? ' class="active"' : '' ?>>总览</a>
-    <a href="/admin/counselor-home/profile"<?= $cwActive('/admin/counselor-home/profile') ?>>我的资料与价格</a>
+    <a href="/admin/counselor-home"<?= $cwActive('/admin/counselor-home') ?>>总览</a>
+    <a href="/admin/counselor-home/todos"<?= $cwActive('/admin/counselor-home/todos') ?>>待办</a>
+    <a href="/admin/counselor-home/calendar"<?= $cwActive('/admin/counselor-home/calendar') ?>>日程与我的排班</a>
+    <a href="/admin/counselor-home/settlement"<?= $cwActive('/admin/counselor-home/settlement') ?>>结算与课时</a>
+    <a href="/admin/counselor-home/cases"<?= $cwActive('/admin/counselor-home/cases') ?>>个案管理</a>
+    <a href="/admin/counselor-home/feedbacks"<?= $cwActive('/admin/counselor-home/feedbacks') ?>>疗程反馈</a>
     <a href="/admin/counselor-home/bookings"<?= $cwActive('/admin/counselor-home/bookings') ?>>我的预约</a>
     <a href="/admin/counselor-home/schedule"<?= $cwActive('/admin/counselor-home/schedule') ?>>我的排班</a>
-    <a href="/admin/counselor-home/cases"<?= $cwActive('/admin/counselor-home/cases') ?>>个案管理</a>
-    <a href="/admin/counselor-home/notes"<?= $cwActive('/admin/counselor-home/notes') ?>>咨询小结与作业</a>
+    <a href="/admin/counselor-home/profile"<?= $cwActive('/admin/counselor-home/profile') ?>>我的资料与价格</a>
+    <a href="/admin/counselor-home/notes"<?= $cwActive('/admin/counselor-home/notes') ?>>历史小结与作业</a>
     <p class="side-group">帮助</p>
     <a href="/" target="_blank">查看前台 ↗</a>
   </nav>

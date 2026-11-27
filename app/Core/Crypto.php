@@ -41,11 +41,23 @@ class Crypto
         if (strpos($value, self::PREFIX) !== 0) return $value;
         $raw = base64_decode(substr($value, strlen(self::PREFIX)), true);
         if ($raw === false || strlen($raw) < 29) return '';
+        $pt = self::decryptRaw($raw, self::key());
+        if ($pt !== null) return $pt;
+        $statsSalt = (string)(CONFIG['stats_salt'] ?? '');
+        if ($statsSalt !== '') {
+            $pt = self::decryptRaw($raw, hash('sha256', 'fallback|' . $statsSalt, true));
+            if ($pt !== null) return $pt;
+        }
+        return '';
+    }
+
+    private static function decryptRaw(string $raw, string $key): ?string
+    {
         $iv = substr($raw, 0, 12);
         $tag = substr($raw, 12, 16);
         $ct = substr($raw, 28);
-        $pt = openssl_decrypt($ct, 'aes-256-gcm', self::key(), OPENSSL_RAW_DATA, $iv, $tag);
-        return $pt === false ? '' : $pt;
+        $pt = openssl_decrypt($ct, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+        return $pt === false ? null : $pt;
     }
 
     public static function isEncrypted($value): bool
@@ -64,6 +76,6 @@ class Crypto
     public static function isSecretKey(string $key): bool
     {
         return in_array($key, ['mail.pass', 'ai.api_key', 'api.token'], true)
-            || (bool)preg_match('/\.(pass|password|secret|token|api_key)$/i', $key);
+            || (bool)preg_match('/(?:^|[._])(?:pass|password|secret|secret_key|token|api_key|app_key|certificate)$/i', $key);
     }
 }

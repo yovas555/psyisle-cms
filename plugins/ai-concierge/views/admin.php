@@ -29,6 +29,22 @@ $settings = $meta['settings'] ?? [];
       <label class="switch"><input type="checkbox" name="<?= e($pk) ?>" value="1" <?= ((string)$cur === '1') ? 'checked' : '' ?>><i></i></label>
       <?php if (!empty($f['help'])): ?><span class="hint"><?= e((string)$f['help']) ?></span><?php endif; ?>
     </label>
+    <?php elseif ($type === 'select'):
+        $selectOptions = (array)($f['options'] ?? []);
+        $presets = (array)($meta['presets'] ?? []);
+    ?>
+    <label class="field">
+      <span class="label"><?= e((string)$f['label']) ?></span>
+      <select name="<?= e($pk) ?>">
+        <?php if (!array_key_exists((string)$cur, $selectOptions)): ?><option value="" selected disabled>请选择服务商预设</option><?php endif; ?>
+        <?php foreach ($selectOptions as $value => $label):
+            $preset = (array)($presets[(string)$value] ?? []);
+        ?>
+        <option value="<?= e((string)$value) ?>" data-url="<?= e((string)($preset['url'] ?? '')) ?>" data-model="<?= e((string)($preset['model'] ?? '')) ?>" <?= ((string)$cur === (string)$value) ? 'selected' : '' ?>><?= e((string)$label) ?></option>
+        <?php endforeach; ?>
+      </select>
+      <?php if (!empty($f['help'])): ?><span class="hint"><?= e((string)$f['help']) ?></span><?php endif; ?>
+    </label>
     <?php else: ?>
     <label class="field">
       <span class="label"><?= e((string)$f['label']) ?></span>
@@ -97,24 +113,27 @@ $settings = $meta['settings'] ?? [];
 
 <script>
 (function () {
-  var PRESETS = {
-    'deepseek':  { url: 'https://api.deepseek.com', model: 'deepseek-chat' },
-    'agnes':     { url: 'https://apihub.agnes-ai.com/v1', model: 'agnes-2.5-flash' },
-    'agnes-cn':  { url: 'https://api.agnes-ai.cn/v1', model: 'agnes-2.5-flash' },
-    'tongyi':    { url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
-    'zhipu':     { url: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
-    'kimi':      { url: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
-    'openai':    { url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' }
-  };
   var sel = document.querySelector('select[name="ai_provider"]');
   if (!sel) return;
   var urlIn = document.querySelector('input[name="ai_base_url"]');
   var modelIn = document.querySelector('input[name="ai_model"]');
+  function fill(opt) {
+    if (!opt || !opt.dataset.url) return;
+    if (urlIn) urlIn.value = opt.dataset.url;
+    if (modelIn) modelIn.value = opt.dataset.model;
+  }
   sel.addEventListener('change', function () {
-    var p = PRESETS[sel.value];
-    if (!p) return;
-    if (urlIn) urlIn.value = p.url;
-    if (modelIn) modelIn.value = p.model;
+    fill(sel.options[sel.selectedIndex]);
   });
+  if (sel.value === '' && urlIn) {
+    var currentUrl = urlIn.value.trim();
+    for (var i = 0; i < sel.options.length; i++) {
+      if ((sel.options[i].dataset.url || '').trim() === currentUrl) {
+        sel.value = sel.options[i].value;
+        if (modelIn && modelIn.value.trim() === '') fill(sel.options[i]);
+        break;
+      }
+    }
+  }
 })();
 </script>

@@ -58,7 +58,7 @@ class Api
                 // 注意隐私：不含联系方式类字段
                 $total = (int)Database::value('SELECT COUNT(*) FROM counselors WHERE status=1');
                 $rows = Database::fetchAll(
-                    "SELECT name, slug, title, orientation, specialties, fee_from, fee_to FROM counselors
+                    "SELECT id, name, slug, title, orientation, specialties, fee_from, fee_to, credentials, supervision, audiences, unsuitable_topics, personal_therapy FROM counselors
                      WHERE status=1 ORDER BY sort LIMIT $size OFFSET $offset"
                 );
                 break;
@@ -94,13 +94,20 @@ class Api
                 echo json_encode(['ok' => false, 'error' => 'unknown resource'], JSON_UNESCAPED_UNICODE);
                 exit;
         }
+        $latest = $resource === 'counselors' ? \app\Services\CounselorTrust::latestForMany($rows) : [];
         echo json_encode([
             'ok' => true,
             'resource' => $resource,
             'page' => $page,
             'size' => $size,
             'total' => $total,
-            'data' => array_map(function ($r) {
+            'data' => array_map(function ($r) use ($latest, $resource) {
+                if ($resource === 'counselors') {
+                    $trust = \app\Services\CounselorTrust::publicProfile($r, $latest[(int)$r['id']] ?? []);
+                    $r['service_boundaries'] = ['audiences' => $trust['audiences'], 'unsuitable_topics' => $trust['unsuitable_topics']];
+                    $r['trust'] = $trust['verifications'];
+                    unset($r['personal_therapy']);
+                }
                 foreach ($r as $k => $v) { if (is_string($v)) { $r[$k] = strip_tags($v); } }
                 return $r;
             }, $rows),

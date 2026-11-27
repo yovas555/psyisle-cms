@@ -73,7 +73,7 @@ class DistributeService
         $domain = strtolower(trim($domain));
         $ip = trim($ip);
         $fail = function (string $why, int $code = 403) use ($license, $domain, $ip, $nonce) {
-            self::log('deny', $license, $domain, $ip, $why);
+            self::log('deny', $license, $domain, $ip, $why, 'deny');
             // 失败也计入限流，防止暴力枚举授权码
             RateLimiter::hit('upgrade-api', $ip . '|' . $license, self::RATE_MAX, self::RATE_WINDOW);
             return [null, $why, $code];
@@ -151,12 +151,14 @@ class DistributeService
 
     /**
      * 插件授权位校验（v2.23.0 插件安装令）：
-     * 客户站下载插件前，回调 cms 官网内部接口，确认「该域名确实购买了该插件」。
+     * $lic 必须已通过 guard；永久版获得全部已发布商业插件，其他版本实时查询 cms 授权位。
      * 授权位权威在 cms 站 SQLite（plugin_entitlements），此处实时查询，无一致性问题。
      * 默认 fail-closed：未配置校验地址/密钥、或请求失败，一律视为未授权。
      */
-    public static function entitledToPlugin(string $domain, string $slug): bool
+    public static function entitledToPlugin(?array $lic, string $domain, string $slug): bool
     {
+        if (!$lic || ($lic['status'] ?? '') !== 'active' || ($lic['domain'] ?? '') !== $domain) return false;
+        if (($lic['edition'] ?? '') === 'lifetime') return true;
         $url = rtrim((string)(CONFIG['entitlement_check_url'] ?? ''), '/');
         $secret = (string)(CONFIG['internal_secret'] ?? '');
         if ($url === '' || $secret === '' || $domain === '' || $slug === '') {
@@ -165,11 +167,12 @@ class DistributeService
         $q = $url . '?domain=' . rawurlencode($domain) . '&slug=' . rawurlencode($slug);
         [$ok, $status, $body] = Http::get($q, ['X-Internal-Key: ' . $secret], 10);
         if (!$ok || $status >= 400) {
-            self::log('deny', '', $domain, (string)($_SERVER['REMOTE_ADDR'] ?? ''), '授权位校验请求失败 status=' . $status);
+            self::log('deny', (string)$lic['license_key'], $domain, (string)($_SERVER['REMOTE_ADDR'] ?? ''),
+                '授权位校验请求失败 status=' . $status, 'deny');
             return false;
         }
         $r = json_decode((string)$body, true);
-        return is_array($r) && !empty($r['entitled']);
+        return is_array($r) && !empty($r['ok']) && !empty($r['entitled']);
     }
 
     /** 校验 check 应答（客户站用）：有可用更新则返回包信息，否则 null */
@@ -256,6 +259,47 @@ class DistributeService
             }
         }
         return [true, '已登记 ' . ($kind === 'core' ? '核心' : '插件 ' . $slug) . ' ' . $version];
+    }
+
+    /**
+     * 分发前完整校验包：先经过 packageFile 的 md5 门禁，再复用 ReleasePackage 强校验。
+     * 登记行与实际包的类型、slug、版本、md5、大小必须一致。
+     */
+    public static function inspectPackage(?array $pkg): array
+    {
+        if (!$pkg) return [null, '包登记信息缺失'];
+        if (!isset($pkg['file_path'], $pkg['md5']) || !is_string($pkg['file_path']) || $pkg['file_path'] === ''
+            || !is_string($pkg['md5']) || !preg_match('/^[a-f0-9]{32}$/', $pkg['md5'])) {
+            return [null, '包登记信息不完整'];
+        }
+        $path = self::packageFile($pkg);
+        if (!$path) return [null, '包文件缺失或 md5 不符'];
+        [$meta, $error] = ReleasePackage::inspect($path);
+        if (!$meta) return [null, $error];
+
+        $kind = (string)($pkg['kind'] ?? '');
+        if (!in_array($kind, ['core', 'plugin'], true) || $meta['kind'] !== $kind) {
+            return [null, '登记类型与实际包类型不符'];
+        }
+        $expectedType = $kind === 'core' ? 'upgrade' : 'plugin';
+        if ((string)$meta['package_type'] !== $expectedType) {
+            return [null, '实际包不是可分发类型：' . $expectedType];
+        }
+        $slug = (string)($pkg['slug'] ?? '');
+        if (($kind === 'core' && $slug !== '') || ($kind === 'plugin' && $slug === '')
+            || (string)$meta['slug'] !== $slug) {
+            return [null, '登记 slug 与实际包 slug 不符'];
+        }
+        if ((string)($pkg['version'] ?? '') !== (string)$meta['version']) {
+            return [null, '登记版本与实际包版本不符'];
+        }
+        if (!hash_equals((string)($pkg['md5'] ?? ''), (string)$meta['md5'])) {
+            return [null, '登记 md5 与实际包 md5 不符'];
+        }
+        if (isset($pkg['size']) && (int)$pkg['size'] !== (int)$meta['size']) {
+            return [null, '登记大小与实际包大小不符'];
+        }
+        return [$meta, ''];
     }
 
     /** 包磁盘完整性（登记 md5 与当前文件比对） */

@@ -11,10 +11,10 @@ if (isset($fields['category_id']) && $fields['category_id'][1] === 'category_sel
 }
 $slotsText = '';
 if ($isEdit && $baseSeg === 'counselors') {
-    $rows = app\Core\Database::fetchAll('SELECT weekday, start_time, end_time FROM counselor_slots WHERE counselor_id=? ORDER BY weekday', [$row['id']]);
+    $rows = app\Core\Database::fetchAll('SELECT weekday, start_time, end_time, slot_minutes FROM counselor_slots WHERE counselor_id=? ORDER BY weekday', [$row['id']]);
     $lines = [];
     foreach ($rows as $s) {
-        $lines[] = $s['weekday'] . '|' . substr((string)$s['start_time'], 0, 5) . '|' . substr((string)$s['end_time'], 0, 5);
+        $lines[] = $s['weekday'] . '|' . substr((string)$s['start_time'], 0, 5) . '|' . substr((string)$s['end_time'], 0, 5) . '|' . (int)($s['slot_minutes'] ?: 50);
     }
     $slotsText = implode("\n", $lines);
 }
@@ -49,13 +49,48 @@ if ($isEdit && $baseSeg === 'counselors') {
       <textarea name="<?= e($name) ?>" rows="<?= (int)($attrs['rows'] ?? 3) ?>"><?= e((string)$val) ?></textarea>
       <?php if (!empty($attrs['hint'])): ?><span class="hint"><?= e($attrs['hint']) ?></span><?php endif; ?>
     </label>
+    <?php elseif ($type === 'service_multi'): ?>
+    <?php
+      $selectedServiceIds = [];
+      if ($isEdit) {
+          $selectedServiceIds = array_map('intval', array_column(\app\Core\Database::fetchAll('SELECT service_id FROM counselor_services WHERE counselor_id=?', [(int)$row['id']]), 'service_id'));
+      }
+      $serviceOptions = \app\Core\Database::fetchAll('SELECT id, name, price_from, price_to, status FROM services ORDER BY sort, id');
+    ?>
+    <fieldset class="field field-full mode-picker">
+      <legend class="label"><?= e($label) ?></legend>
+      <div class="chip-row">
+        <?php foreach ($serviceOptions as $service): ?>
+        <label class="mode-option"><input type="checkbox" name="<?= e($name) ?>[]" value="<?= (int)$service['id'] ?>" <?= in_array((int)$service['id'], $selectedServiceIds, true) ? 'checked' : '' ?>><?= e($service['name']) ?><?= $service['status'] ? '' : '（已停用）' ?></label>
+        <?php endforeach; ?>
+      </div>
+      <?php if (!empty($attrs['hint'])): ?><span class="hint"><?= e($attrs['hint']) ?></span><?php endif; ?>
+    </fieldset>
+    <?php elseif ($type === 'mode_multi'): ?>
+    <?php $selectedModes = \app\Services\CounselorProfile::modes($val); ?>
+    <fieldset class="field field-full mode-picker">
+      <legend class="label"><?= e($label) ?></legend>
+      <div class="chip-row">
+        <?php foreach (\app\Services\CounselorProfile::MODES as $mode): ?>
+        <label class="mode-option"><input type="checkbox" name="<?= e($name) ?>[]" value="<?= e($mode) ?>" <?= in_array($mode, $selectedModes, true) ? 'checked' : '' ?>><?= e($mode) ?></label>
+        <?php endforeach; ?>
+      </div>
+      <?php if (!empty($attrs['hint'])): ?><span class="hint"><?= e($attrs['hint']) ?></span><?php endif; ?>
+    </fieldset>
     <?php elseif ($type === 'image'): ?>
-    <label class="field">
+    <?php $crop = (string)($attrs['crop'] ?? ''); ?>
+    <label class="field<?= $crop ? ' field-full' : '' ?>">
       <span class="label"><?= e($label) ?></span>
-      <div class="img-pick" data-name="<?= e($name) ?>">
+      <div class="img-pick" data-name="<?= e($name) ?>"<?= $crop ? ' data-crop="' . e($crop) . '" data-upload="' . e((string)($attrs['upload'] ?? '/admin/media/upload')) . '"' : '' ?>>
         <input type="text" name="<?= e($name) ?>" value="<?= e((string)$val) ?>" placeholder="上传或粘贴 /uploads/… 路径">
-        <button type="button" class="btn btn-sm btn-ghost js-upload">上传</button>
-        <img class="img-preview" src="<?= e((string)$val) ?>" alt="" <?= $val ? '' : 'hidden' ?>>
+        <?php if ($crop): ?>
+          <button type="button" class="btn btn-sm btn-ghost js-crop">上传并裁剪</button>
+          <button type="button" class="btn btn-sm btn-ghost js-recrop" <?= $val ? '' : 'hidden' ?>>重新裁剪</button>
+        <?php else: ?>
+          <button type="button" class="btn btn-sm btn-ghost js-upload">上传</button>
+        <?php endif; ?>
+        <img class="img-preview" src="<?= e((string)$val) ?>" alt="当前图片" <?= $val ? '' : 'hidden' ?>>
+        <?php if (!empty($attrs['hint'])): ?><span class="hint"><?= e($attrs['hint']) ?></span><?php endif; ?>
       </div>
     </label>
     <?php elseif ($type === 'publish_select'): ?>
@@ -153,10 +188,11 @@ if ($isEdit && $baseSeg === 'counselors') {
   <?php endforeach; ?>
 
   <?php if ($baseSeg === 'counselors'): ?>
+  <input type="hidden" name="_counselor_form" value="1">
   <label class="field field-full">
-    <span class="label">可预约时段（每行一条：星期|开始|结束[|单次分钟]，星期 1-7 周一至周日；单次分钟默认 50，范围 10-240）</span>
-    <textarea name="slots_text" rows="4" placeholder="6|09:00|12:00|50&#10;6|14:00|17:00&#10;3|19:00|21:00"><?= e($slotsText) ?></textarea>
-    <span class="hint">时段按「单次分钟」切片生成可约槽（如 09:00-12:00、50 分钟 → 09:00/09:50/10:40 各成一槽）；提前截止与缓冲由系统设置统一控制；留空表示不展示时段表</span>
+    <span class="label">可预约时段（每行一条：星期|开始|结束[|单次分钟|方式|门店ID]，星期 1-7 周一至周日）</span>
+    <textarea name="slots_text" rows="5" placeholder="6|09:00|12:00|50|all|0&#10;6|14:00|17:00|50|offline|1&#10;3|19:00|21:00|50|online|0"><?= e($slotsText) ?></textarea>
+    <span class="hint">方式 all=线上+线下、offline=仅面对面、online=仅视频/电话；门店ID 0=沿用咨询师归属门店，线上自动忽略门店。单次分钟默认 50，范围 10-240；留空表示不展示时段表。</span>
   </label>
   <?php endif; ?>
   <?php /* v2.8.0 插件扩展点：stores-pro 注入门店选择等额外字段 */

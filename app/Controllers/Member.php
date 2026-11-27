@@ -9,6 +9,7 @@ use app\Core\RateLimiter;
 use app\Core\Request;
 use app\Core\Session;
 use app\Services\MemberService;
+use app\Services\PostSessionService;
 use app\Services\StatsService;
 
 /**
@@ -169,6 +170,7 @@ class Member
         $upcoming = array_values(array_filter($bookings, fn ($b) => in_array($b['status'], ['pending', 'confirmed', 'rescheduled'], true)));
         $assessCount = (int)\app\Core\Database::value('SELECT COUNT(*) FROM assessment_results WHERE member_id=?', [(int)$m['id']]);
         $assessTotal = (int)\app\Core\Database::value('SELECT COUNT(*) FROM assessments WHERE status=1');
+        $hasPwd = (bool)Database::value('SELECT password_hash IS NOT NULL AND password_hash<>"" FROM members WHERE id=?', [(int)$m['id']]);
         // v2.8.1：插件卡片支持 sort 字段（缺省 50），中心页按序渲染；插件可注入待办与徽标
         $cards = \app\Core\Hook::fire('member.cards', ['member' => $m, 'cards' => []])['cards'] ?? [];
         usort($cards, fn ($a, $b) => ((int)($a['sort'] ?? 50)) <=> ((int)($b['sort'] ?? 50)));
@@ -181,7 +183,7 @@ class Member
             'title' => '会员中心', 'm' => $m,
             'upcoming' => array_slice($upcoming, 0, 3),
             'upcomingCount' => count($upcoming),
-            'bookingTotal' => count($bookings), 'assessCount' => $assessCount, 'assessTotal' => $assessTotal,
+            'bookingTotal' => count($bookings), 'assessCount' => $assessCount, 'assessTotal' => $assessTotal, 'hasPwd' => $hasPwd,
             'extraCards' => $cards, 'todo' => $todo, 'badges' => $badges,
         ]);
     }
@@ -194,8 +196,50 @@ class Member
         $list = MemberService::myBookings((int)$m['id'], $m['phone']);
         // v2.13.0：插件注入行级动作（rtc-pro：时间窗内「进入咨询室」）
         $list = \app\Core\Hook::fire('member.booking.rows', ['member' => $m, 'rows' => $list])['rows'] ?? $list;
+        $feedbackByBooking = [];
+        $completedIds = array_values(array_filter(array_map(static function ($b): int {
+            return (string)$b['status'] === 'completed' ? (int)$b['id'] : 0;
+        }, $list)));
+        if ($completedIds) {
+            $marks = implode(',', array_fill(0, count($completedIds), '?'));
+            foreach (Database::fetchAll("SELECT * FROM booking_feedbacks WHERE member_id=? AND booking_id IN ($marks)", array_merge([(int)$m['id']], $completedIds)) as $feedback) {
+                $feedbackByBooking[(int)$feedback['booking_id']] = $feedback;
+            }
+        }
         $statusMap = ['pending' => '待确认', 'confirmed' => '已确认', 'rescheduled' => '已改期', 'completed' => '已完成', 'cancelled' => '已取消'];
-        $this->view('member/bookings', ['title' => '我的预约', 'm' => $m, 'list' => $list, 'statusMap' => $statusMap]);
+        $this->view('member/bookings', ['title' => '我的预约', 'm' => $m, 'list' => $list, 'statusMap' => $statusMap, 'feedbackByBooking' => $feedbackByBooking]);
+    }
+
+    public function feedback(Request $req, array $p): void
+    {
+        StatsService::track();
+        $m = MemberService::current();
+        if (!$m) { \app\Core\ResponseRedirect('/member/login'); }
+        $bookingId = (int)$p['id'];
+        $feedback = PostSessionService::forMemberBooking($bookingId, (int)$m['id']);
+        if (!$feedback) {
+            Session::flash('error', '该预约不存在、不属于您或尚未建立咨询后反馈');
+            \app\Core\ResponseRedirect('/member/bookings');
+        }
+        $booking = Database::fetch('SELECT id, prefer_date, prefer_slot, status FROM bookings WHERE id=?', [$bookingId]);
+        if ($req->isPost()) {
+            Csrf::guard();
+            try {
+                $feedback = PostSessionService::submit($bookingId, (int)$m['id'], [
+                    'rating' => $req->post('rating', ''),
+                    'comment' => $req->post('comment', ''),
+                    'wants_followup' => $req->post('wants_followup', '0'),
+                ]);
+                Session::flash('success', '反馈已提交，感谢您的评价');
+                \app\Core\ResponseRedirect('/member/bookings');
+            } catch (\InvalidArgumentException $e) {
+                Session::flash('error', $e->getMessage());
+            } catch (\Throwable $e) {
+                \app\Core\Logger::error('post-session', 'member feedback failed: ' . $e->getMessage(), ['booking' => $bookingId]);
+                Session::flash('error', '反馈暂时无法提交，请稍后重试');
+            }
+        }
+        $this->view('member/feedback', ['title' => '咨询后反馈', 'm' => $m, 'booking' => $booking, 'feedback' => $feedback]);
     }
 
     public function cancelBooking(Request $req, array $p): void

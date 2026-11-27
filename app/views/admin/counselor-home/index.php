@@ -7,7 +7,12 @@
       <span class="chip<?= $pending ? ' err-text' : '' ?>">待确认预约 <?= (int)$pending ?></span>
       <span class="chip">累计小结/作业 <?= (int)$notesCount ?></span>
       <span class="chip">进行中个案 <b><?= (int)($caseStats['active'] ?? 0) ?></b></span>
+      <span class="chip<?= $todoCount ? ' err-text' : '' ?>">待办 <b><?= $todoCount >= 100 ? '100+' : (int)$todoCount ?></b></span>
+      <span class="chip<?= $unread ? ' err-text' : '' ?>">未读通知 <?= (int)$unread ?></span>
+      <span class="chip">本月服务 <?= (int)$settlement['sessions'] ?> 次 · 核销 <?= (int)$settlement['redeemed_sessions'] ?> 次</span>
       <?php if (!empty($caseStats['high_risk'])): ?><span class="chip err-text">高风险个案 <?= (int)$caseStats['high_risk'] ?></span><?php endif; ?>
+      <a class="btn btn-sm btn-ghost" href="/admin/counselor-home/todos">处理待办 →</a>
+      <a class="btn btn-sm btn-ghost" href="/admin/counselor-home/settlement">结算与课时 →</a>
       <a class="btn btn-sm btn-ghost" href="/admin/counselor-home/cases">进入个案管理 →</a>
     </div>
     <p class="hint">工作台数据仅限本人：预约、排班、咨客套餐余额与咨询记录。</p>
@@ -55,15 +60,22 @@
 
 <?php $wxBound = (bool)\app\Core\Database::value('SELECT id FROM counselor_wx WHERE counselor_id=? AND openid IS NOT NULL AND openid<>""', [(int)$me['id']]); ?>
 <div class="panel" style="margin-top:14px">
-  <h2>微信提醒绑定</h2>
+  <h2>通知接收绑定</h2>
   <div class="toolbar">
-    <?php if ($wxBound): ?>
-    <span class="chip"><b class="ok">✓</b> 服务号已绑定，预约提醒将推送到微信</span>
+    <span class="chip"><b class="ok">✓</b> 后台账号已关联咨询师档案</span>
+    <?php if (preg_match('/^1[3-9]\d{9}$/', trim((string)($me['phone'] ?? '')))): ?>
+    <span class="chip"><b class="ok">✓</b> 短信手机号已绑定</span>
     <?php else: ?>
-    <a class="btn btn-primary" href="<?= url('/admin/counselor-home/bind-wx') ?>">绑定微信服务号（接收预约提醒）</a>
-    <span class="muted">绑定后：新预约/取消/改期即时微信推送；手机号短信提醒由机构设置控制</span>
+    <a class="btn btn-primary" href="/admin/counselor-home/profile">绑定短信手机号</a>
+    <?php endif; ?>
+    <?php if ($wxBound): ?>
+    <span class="chip"><b class="ok">✓</b> 服务号已绑定</span>
+    <a class="btn btn-sm btn-ghost" href="<?= url('/admin/counselor-home/bind-wx') ?>">刷新关注状态</a>
+    <?php else: ?>
+    <a class="btn btn-primary" href="<?= url('/admin/counselor-home/bind-wx') ?>">绑定微信服务号</a>
     <?php endif; ?>
   </div>
+  <p class="hint">付款成功后会发送管理员邮件，并向咨询师推送站内、短信和服务号提醒；短信需有效手机号，服务号需绑定且已关注。</p>
 </div>
 <div class="panel" style="margin-top:14px">
   <h2>近期预约（已确认/已改期）</h2>

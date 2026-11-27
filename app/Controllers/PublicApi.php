@@ -95,14 +95,23 @@ class PublicApi
 
     private function counselors(): array
     {
-        $rows = Database::fetchAll("SELECT name, slug, title, specialties, introduction FROM counselors WHERE status=1 ORDER BY sort LIMIT 50");
-        return array_map(fn($c) => [
-            'name' => (string)$c['name'],
-            'title' => (string)$c['title'],
-            'url' => url('/counselors/' . $c['slug']),
-            'specialties' => (string)$c['specialties'],
-            'introduction' => str_take(strip_tags((string)$c['introduction']), 300, ''),
-        ], $rows);
+        $rows = Database::fetchAll("SELECT id, name, slug, title, specialties, introduction, credentials, supervision, audiences, unsuitable_topics, personal_therapy FROM counselors WHERE status=1 ORDER BY sort LIMIT 50");
+        $latest = \app\Services\CounselorTrust::latestForMany($rows);
+        return array_map(function ($c) use ($latest) {
+            $trust = \app\Services\CounselorTrust::publicProfile($c, $latest[(int)$c['id']] ?? []);
+            return [
+                'name' => (string)$c['name'],
+                'title' => (string)$c['title'],
+                'url' => url('/counselors/' . $c['slug']),
+                'specialties' => (string)$c['specialties'],
+                'introduction' => str_take(strip_tags((string)$c['introduction']), 300, ''),
+                'service_boundaries' => [
+                    'audiences' => $trust['audiences'],
+                    'unsuitable_topics' => $trust['unsuitable_topics'],
+                ],
+                'trust' => $trust['verifications'],
+            ];
+        }, $rows);
     }
 
     private function faq(): array

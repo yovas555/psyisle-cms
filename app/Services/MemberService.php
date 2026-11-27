@@ -314,18 +314,54 @@ class MemberService
              FROM bookings WHERE phone=? ORDER BY created_at DESC LIMIT 50', [$phone]);
     }
 
-    /** 取消预约：仅待确认/已确认，且期望日期 ≥ 24 小时后 */
+    public static function bookingStartTs(array $booking): ?int
+    {
+        $date = trim((string)($booking['prefer_date'] ?? ''));
+        if ($date === '') return null;
+        $start = substr((string)($booking['prefer_slot'] ?? ''), 0, 5);
+        $ts = strtotime($start !== '' ? $date . ' ' . $start : $date);
+        return $ts === false ? null : $ts;
+    }
+
+    public static function canChangeBooking(array $booking): bool
+    {
+        if (!in_array($booking['status'] ?? '', ['pending', 'confirmed', 'rescheduled'], true)) return false;
+        $start = self::bookingStartTs($booking);
+        return $start === null || $start - time() >= 86400;
+    }
+
+    public static function bookingNextStep(array $booking): string
+    {
+        $status = (string)($booking['status'] ?? '');
+        if ($status === 'cancelled') return '本次预约已取消，不占用咨询师时段；如需咨询请重新预约。';
+        if ($status === 'completed') return '咨询已完成；如有后续安排，请查看机构消息或联系咨询师。';
+        if ($status === 'rescheduled') return '机构已调整时间，请以当前显示的日期和时段为准。';
+        if ((string)($booking['pay_status'] ?? '') === 'unpaid' && (int)($booking['amount_cents'] ?? 0) > 0) {
+            return '请先完成在线支付，支付成功后预约自动生效。';
+        }
+        if ($status === 'pending') return '预约已收到，机构确认后会通过站内消息、微信或短信通知你。';
+        if ($status === 'confirmed') return '预约已生效；请提前准备，并按预约时间进入咨询室或前往咨询地点。';
+        return '如需了解进度，请联系机构。';
+    }
+
+    /** 取消预约：仅待确认/已确认/已改期，且距咨询开始至少 24 小时 */
     public static function cancelBooking(int $memberId, int $bookingId): array
     {
-        $m = self::current();
+        return self::cancelForMember(self::current() ?: [], $bookingId);
+    }
+
+    public static function cancelForMember(array $m, int $bookingId): array
+    {
         if (!$m) return [false, '请先登录'];
         $b = Database::fetch('SELECT * FROM bookings WHERE id=? AND phone=?', [$bookingId, $m['phone']]);
         if (!$b) return [false, '预约不存在或无权操作'];
-        if (!in_array($b['status'], ['pending', 'confirmed'], true)) return [false, '当前状态不可取消'];
-        if ($b['prefer_date'] && strtotime((string)$b['prefer_date']) - time() < 86400) {
-            return [false, '距咨询时间不足 24 小时，请直接联系机构取消（可在下方查看联系方式）'];
-        }
-        Database::run("UPDATE bookings SET status='cancelled' WHERE id=?", [$bookingId]);
+        if (!in_array($b['status'], ['pending', 'confirmed', 'rescheduled'], true)) return [false, '当前状态不可取消'];
+        [$ok, $message, $updated, $changed] = BookingLifecycle::transition(
+            $bookingId, 'cancelled', (int)$m['id'], (string)($m['name'] ?: '会员'), '会员自助取消', true
+        );
+        if (!$ok) return [$ok, $message];
+        if (!$changed) return [true, '预约已取消'];
+        $b = $updated;
         NotifyService::push('booking', '会员取消预约', "查询码 {$b['code']}（" . self::maskPhone($m['phone']) . "）已由会员在自助中心取消", ['type' => 'booking', 'id' => $bookingId]);
         // v2.17.0：自助取消 → 会员+咨询师双侧三通道
         \app\Services\MemberNotifyService::push((int)$m['id'], 'booking_cancel', [
@@ -346,6 +382,17 @@ class MemberService
         return [true, '预约已取消'];
     }
 
+    private static function rescheduleStartTs(string $date, string $slot): ?int
+    {
+        $parsed = \DateTime::createFromFormat('!Y-m-d', $date);
+        if (!$parsed || $parsed->format('Y-m-d') !== $date) return null;
+        if (preg_match('/\d{1,2}:\d{2}/', $slot)) {
+            if (!preg_match('/(?:^|[^\d])([01]\d|2[0-3]):([0-5]\d)/', $slot, $m)) return null;
+            $parsed->setTime((int)$m[1], (int)$m[2]);
+        }
+        return $parsed->getTimestamp();
+    }
+
     /** 改期申请：记录到机构备注 + 通知（管理员改后回电确认） */
     /** v2.20.2：改会员行注入参数（WEB 会话与小程序 BFF 共用）；兼容旧签名（传 int 时按 WEB 会话取） */
     public static function requestReschedule($m, int $bookingId, string $newDate, string $newSlot): array
@@ -354,10 +401,11 @@ class MemberService
         if (!$m) return [false, '请先登录'];
         $b = Database::fetch('SELECT * FROM bookings WHERE id=? AND phone=?', [$bookingId, $m['phone']]);
         if (!$b) return [false, '预约不存在或无权操作'];
-        if (!in_array($b['status'], ['pending', 'confirmed'], true)) return [false, '当前状态不可申请改期'];
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $newDate) || strtotime($newDate) === false) return [false, '期望日期格式不正确'];
-        if (strtotime($newDate) - time() < 86400) return [false, '改期日期至少在 24 小时后'];
+        if (!in_array($b['status'], ['pending', 'confirmed', 'rescheduled'], true)) return [false, '当前状态不可申请改期'];
         $newSlot = str_take(trim($newSlot), 50, '');
+        $targetStart = self::rescheduleStartTs($newDate, $newSlot);
+        if ($targetStart === null) return [false, '期望日期格式不正确'];
+        if ($targetStart - time() < 86400) return [false, '改期时间至少在 24 小时后'];
         $note = '【会员改期申请 ' . date('m-d H:i') . '】希望改到 ' . $newDate . ($newSlot !== '' ? ' ' . $newSlot : '') . '；原时间 ' . (string)$b['prefer_date'] . ' ' . (string)$b['prefer_slot'];
         $hasNoteCol = Database::fetch("SHOW COLUMNS FROM bookings LIKE 'admin_note'") ? true : false;
         if ($hasNoteCol) {
@@ -395,10 +443,15 @@ class MemberService
             'SELECT a.slug, a.name AS assessment_name, r.score, r.level, r.created_at
              FROM assessment_results r JOIN assessments a ON a.id = r.assessment_id
              WHERE r.member_id=? ORDER BY r.created_at DESC LIMIT 200', [(int)$m['id']]);
+        $feedbacks = Database::fetchAll(
+            'SELECT booking_id, rating, comment, wants_followup, bridge_status, submitted_at, created_at, updated_at
+             FROM booking_feedbacks WHERE member_id=? ORDER BY id DESC', [(int)$m['id']]
+        );
         return [
             'exported_at' => date('c'),
             'member' => ['phone' => self::maskPhone($m['phone']), 'name' => $m['name'], 'joined_at' => $joined],
             'bookings' => $bookings,
+            'post_session_feedbacks' => $feedbacks,
             'assessments' => $assess,
         ];
     }
@@ -475,9 +528,8 @@ class MemberService
 
     public static function resetPassword(string $token, string $newPassword): array
     {
-        if (strlen($newPassword) < 8 || !preg_match('/[0-9]/', $newPassword) || !preg_match('/[A-Z]/', $newPassword) || !preg_match('/[a-z]/', $newPassword)) {
-            return [false, \app\Core\PasswordPolicy::RULE_TEXT];
-        }
+        $pwdErr = \app\Core\PasswordPolicy::check($newPassword);
+        if ($pwdErr !== null) return [false, $pwdErr];
         $raw = Cache::get('pwd_reset:' . $token);
         $data = $raw ? json_decode((string)$raw, true) : null;
         if (!is_array($data) || empty($data['id'])) return [false, '重置链接无效或已过期，请重新获取'];

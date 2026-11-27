@@ -105,7 +105,7 @@ $brandShown = \app\Services\LicenseService::feature('remove_brand')
     </nav>
     <div class="header-cta">
       <?php $memberCur = \app\Services\MemberService::current(); ?>
-      <a class="member-link" href="<?= url($memberCur ? '/member' : '/member/login') ?>" aria-label="会员"><?= $memberCur ? '👤 ' . e($memberCur['name']) : '会员' ?></a>
+      <a class="member-link" href="<?= url($memberCur ? '/member' : '/member/login') ?>" aria-label="会员" title="<?= $memberCur ? '进入会员中心' : '会员登录' ?>"><?= $memberCur ? '👤 会员' : '会员' ?></a>
       <?php if ($phone): ?><a class="phone" href="tel:<?= e($phone) ?>" aria-label="联系电话"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z"/></svg> <?= e($phone) ?></a><?php endif; ?>
       <a class="btn btn-primary" href="<?= url('/booking') ?>">预约</a>
     </div>

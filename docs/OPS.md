@@ -1,6 +1,6 @@
 # 一二三 PsyIsle CMS 运维档案
 
-> 文档版本 2026-11-09 · 对应系统版本 v1.4.0 · 密级：内部（含敏感入口信息，禁止外发）
+> 文档版本 2026-11-27 · 对应系统版本 v2.34.3 · 密级：内部（含敏感入口信息，禁止外发）
 > 配套文档：《使用白皮书》docs/USER-MANUAL-v1.4.0.md · 接口细则 docs/API.md · 架构规则 docs/ARCHITECTURE.md
 
 ---
@@ -11,13 +11,14 @@
 
 | 项 | 值 |
 |---|---|
-| 当前版本 | 1.4.0（见 app/bootstrap.php CMS_VERSION） |
+| 当前版本 | 2.34.3（WW 已部署，核心 active；onzx 待自助升级复验；见 app/bootstrap.php CMS_VERSION） |
+| 发布状态 | 核心 `psyisle-2.34.3-20261127-221404.zip`，min_from 2.34.2，SHA-256 `eb3ac56f1de4a88030f31c4b3a4b344cd5642d444390c017cf844b83c2eb774f`；ai-concierge 1.0.3；完整发布与回滚事实以 `docs/RELEASE.md` 为准 |
 | 技术栈 | PHP 7.4（语法兼容 8.x）· MySQL 5.7+ utf8mb4 · Nginx · 自研 MVC（零 Composer 依赖） |
 | 代码规模 | 约 90 个 PHP 文件 / 30+ 视图 / 6 套 CSS |
 | 部署形态 | 单站点单库；文档根 public/，应用代码在 Web 不可达目录 |
 | 架构分层 | public/index.php → bootstrap（autoload/安全头/异常兜底）→ Router → Controllers（前台 app\Controllers / 后台 app\Controllers\Admin）→ Models/Services |
 
-功能面：内容（文章/单页/栏目/FAQ/心声/轮播/导航/友链）· 机构（咨询师/服务）· 业务（预约/留言/AI 客服/量表/活动）· 运营（通知/审计/统计/SEO 推送）· 系统（用户角色 RBAC/两步验证/设置/工具/授权升级）· 集成（JSON API v1/健康检查）。
+功能面：内容（文章/单页/栏目/FAQ/心声/轮播/导航/友链）· 机构（咨询师/服务）· 业务（预约/留言/AI 客服/量表/活动）· 临床（个案/结构化咨询记录/危机闭环/作业随访，v2.22.0 起）· 运营（通知/审计/统计/SEO 推送）· 系统（用户角色 RBAC/两步验证/设置/工具/授权升级）· 集成（JSON API v1/健康检查）。
 
 ## 二、站点矩阵
 
@@ -47,7 +48,7 @@
 /www/wwwroot/ww.123l.cn/
 ├── config/config.php          # db 凭据 / cron_secret / license_secret / stats_salt（rsync 排除，勿覆盖）
 ├── storage/installed.json     # 安装锁（删除=允许重装，危险）
-├── storage/backups/           # 数据库备份 / 全量备份（保留 30 天）
+├── storage/backups/           # AES-256-CBC / PSYENC1 加密备份（本地保留 7 天）
 ├── upgrades/                  # 升级包暂存 + last-applied.json（www 属主）
 └── public/uploads/            # 上传文件（禁 PHP 执行）
 ```
@@ -59,6 +60,8 @@
 bash /home/kawah/.zcode/workspace/…/psyisle-cms/deploy/deploy.sh
 ```
 流程：rsync（--delete，排除 storage/、config/config.php、public/uploads/、.user.ini、.well-known、tools/、dist/、docs/）→ 权限修正（uploads/storage/upgrades 归 www）→ 全量 php -l 语法门禁 → nginx 配置核对+reload。
+
+**门禁**：开发与发布为同一责任链；开发阶段完成本地修改/自测并提交验收，验收通过后才进入部署、构建、登记与发布回填。v2.24.4 已完成 WW 部署、构建、登记、远端全量回归、RTC 桌面/移动端浏览器验收，以及 CMS 公告、六页、插件目录与桌面/移动端官网走查，结果见 `docs/RELEASE.md`。
 
 **注意**
 - rsync --delete 会删除服务器上不在本地的文件——新文件先落本地仓库再部署，严禁在服务器直接改代码
@@ -75,8 +78,8 @@ ai_kb, faqs, banners, navigations, links, attachments, email_queue, notification
 visit_stats, licenses, upgrade_history, assessments, assessment_results, testimonials, events, event_registrations, revisions。
 
 - 全量 DDL：database/schema.sql（含后续 ALTER 记录；MySQL 5.7 无 ADD COLUMN IF NOT EXISTS，用 information_schema+PREPARE 条件执行）
-- 备份：工具页「数据库备份」（mysqldump，30 天滚动）+「全量备份」（DB+uploads zip）
-- 恢复：`gunzip/gizp -d 后 mysql psyisle < dump.sql`（先确认表引擎/字符集一致）
+- 备份：工具页「数据库备份」（mysqldump 或内置 PHP 导出）+「全量备份」（DB+uploads）；本地滚动保留 **7 天**，v2.21.0 起为 **AES-256-CBC / PSYENC1** 加密备份（`*.enc`）。
+- 恢复：先用 `BackupCrypto::decryptFile()` 解密，再校验并解压 gzip/zip 后导入目标库（完整步骤见 §十四）；不得只按明文 SQL 导入操作加密备份。
 - 隐私约定：visit_logs 只存 IP 哈希（stats_salt）；assessment_results 不存答案明细；手机号展示打码
 
 ## 五、计划任务（crontab，root）
@@ -98,7 +101,8 @@ visit_stats, licenses, upgrade_history, assessments, assessment_results, testimo
 `GET /api/v1/{articles|counselors|services|events|faqs|assessments}`，Bearer Token（设置页生成，60/min 限流），只读、strip_tags、无隐私字段。健康检查 `GET /health`（10/min 限流）。
 
 ### 6.2 前台页面路由
-`/` `/news[/category/{slug}]` `/news/{slug}` `/counselors[/{slug}]` `/services[/{slug}]` `/events[/{slug}[/register]]` `/assessment[/{slug}]` `/qa` `/tag/{tag}` `/faq` `/booking` `/booking/check` `/booking/slots` `/message` `/message/reply` `/p/{slug}`（about/privacy/consent/crisis/pricing/process/contact）`/search`
+`/` `/news[/category/{slug}]` `/news/{slug}` `/counselors[/{slug}]` `/services[/{slug}]` `/events[/{slug}[/register]]` `/assessment[/{slug}]` `/qa` `/tag/{tag}` `/faq` `/booking` `/booking/slots` `/message` `/message/reply` `/p/{slug}`（about/privacy/consent/crisis/pricing/process/contact）`/search`
+注：`/booking/check` 已在 v2.24.0 废除，不在当前路由清单；历史版本记录保留。
 SEO 资产：`/sitemap.xml /robots.txt /rss.xml /llms.txt /favicon.ico /{indexnow-key}.txt`
 
 ### 6.3 后台路由
@@ -179,6 +183,7 @@ SEO 资产：`/sitemap.xml /robots.txt /rss.xml /llms.txt /favicon.ico /{indexno
 NotifyService::push(type, title, body, ref) —— 站内 notifications + 邮件（urgent 同步直发，失败入队）。
 触发：booking（新预约）/ message（新留言）/ chat_escalate（转人工/疑似未答）/ crisis（危机词命中）/ login_alert（连续失败≥3）/ system（活动报名等）/ upgrade / license。
 管理员邮箱与 SMTP 在设置页配置；**mail.enabled 关闭时全链静默**（站内通知仍写）。
+会员兜底短信自 v2.20.1 起由管理员人工补发，30 分钟未查阅只通知管理员，不再自动发送会员短信；详见 `docs/DEV-RULES.md` §五点五。
 
 ## 十、主题系统
 
@@ -214,8 +219,9 @@ NotifyService::push(type, title, body, ref) —— 站内 notifications + 邮件
 ## 十点六、开发规则与路线图
 
 - **跨 agent 强制规则**：仓库根 `AGENTS.md`（铁律+规范+自检命令）
+- **当前测试基线**：后台 45/0、前台 41/0、安全 26/0、CRUD 30/30、链接全部可达、SCHEMA 18/0、MANIFESTS_OK(17)；这是 v2.24.4 本次 WW 远端全量回归结果
 - **技术详解与 14 条历史事故**：`docs/DEV-RULES.md`
-- **发布清单（核心 14 项 + 插件 11 项）**：`docs/RELEASE.md`
+- **发布清单与内部版本事实源（核心 14 项 + 插件 11 项）**：`docs/RELEASE.md`；仓库无根 `CHANGELOG.md`，包内 `version.json` 由构建工具生成
 - **v2.x → v3.0 路线图**：`docs/ROADMAP.md`
 
 ## 十一、故障排查速查
@@ -315,7 +321,18 @@ NotifyService::push(type, title, body, ref) —— 站内 notifications + 邮件
 | **v2.17.0** | **2026-11-19** | **预约/排班深化**：统一槽位服务 BookingSlots（切片/例外/请假/提前截止/缓冲/每日上限/分时定价，三处单一事实来源）；咨询师日历可点击时段→预约确认页（锁时段+价格预览+二次重查）→会员需支付直跳微信收银台；原表单定位「预约申请通道」；通知双推统一出口（四态双侧三通道+咨询完成+开始前 30 分钟）；修复提醒置位顺序/例外排班状态值/确认页列名（验收修复）；rtc-pro 1.1.1 · schedule-pro 1.0.3 · wechat-notify 1.0.4。发行 md5 3d1071ff…（min_from=2.16.0，含 register NULL-slug 重复行修复）；GitHub v2.17.0 同步（36 文件+运维残留清理说明） |
 | **v2.17.1** | **2026-11-19** | **短信模板变量适配**：阿里云禁用 site 作模板变量名，短信参数键 site→store，配套已过审通用通知模板 SMS_512638908（告警/会员通知/提醒全路径）；sms-notify 1.1.4（变量适配）、wechat-notify 1.0.5（会员模板消息中转短链 /n/{token} 点击回执）；发行 md5 92cf6622…（min_from=2.17.0）；GitHub v2.17.1 同步 |
 | **v2.17.2** | **2026-11-19** | **通知规则落地 + 密码策略统一**：通道定位收敛（站内信=台账恒发/微信=主力/邮件=三用途）；短信兜底制（30 分钟无查阅回执自动补发，notify_escalations 幂等建表，查阅三信号统一 /n/{token} 短链）；PasswordPolicy 统一密码策略（8 位大小写+数字，管理员放宽/会员收紧）；修复会员站内信中心 404（v2.14 遗留）。发行 md5 f61d2364…（min_from=2.17.1）；GitHub v2.17.2 同步 |
-| **v2.20.0（当前版本）** | **2026-11-22** | **修复与会员体验**：微信绑定断点修复（intent 分流+直绑当前会员，wechat-login 1.0.2/wxhub-client 1.1.1）；Mailer SMTP context 根因修复+空授权码快速失败；我的预约待付费/去支付视图自算；AssessmentService 计分双结构归一化；MemberService::updateProfile。插件同步发行：miniapp-pro 1.1.1（会员全模块进小程序）、rtc-pro 1.1.3（电话进房+统一时间窗）。发行 md5 3466c359…（min_from=2.17.2）；GitHub v2.20.0 同步（基础包 md5 1cccb42b…）；授权发行服务 systemd 化重建（/tmp 版散佚致 AI 客服降级事故已修复） |
+| **v2.24.4** | **2026-11-25** | **RTC 浏览器验收补丁**：rtc-pro 1.1.5 清空本地视频占位文字、修复移动端竖排残留；轨道释放改用 `close/stopPlay`；离开频道 Promise 显式兜底。核心 md5 `a22aa781…`（min_from=2.17.2）；RTC md5 `82fa1f9d…`（min_from=2.17.0）；WW 已部署登记，全量回归及 RTC 桌面/移动端真实浏览器验收通过；GitHub v2.24.4 同步（公开包 md5 d1fbc11b…）。 |
+| **v2.24.3** | **2026-11-25** | **个案照护与 RTC 安全修复**：`Admin\Casebook::care()` 补齐 `activePlans`；rtc-pro 1.1.4 删除公开 `front_diag`/`views/diag.php`，SDK 错误文本改 `textContent`、缓存版本改 1.1.4，保留阿里云 RTC 3.0 MCU `audio` 主动订阅、`remoteAudioTrack` 与重连修复；构建器排除 `.DS_Store`，恢复微信登录官方签名。核心 md5 `fe075e90…`（min_from=2.17.2）；RTC md5 `af398ac4…`（min_from=2.17.0）；WW 已部署登记，远端全量回归通过。 |
+| **v2.24.2** | **2026-11-24** | **后台体验优化（纯界面）**：列表操作列降噪（「下线/启用」「删除」改轻量文字链接、删除二次确认）、表格视觉（斑马纹/悬浮高亮/行距加大/表头吸顶）、「一键清理缓存」提到运维工具页顶部。发行 md5 45840838…；GitHub v2.24.2（基础包 64b38bf4…） |
+| **v2.24.1** | **2026-11-24** | **账号体系热修**：咨询师入驻（从会员添加，一键建档 + 自动建工作台账号）、微信扫码识别咨询师直进工作台（wechat-login 1.0.4）、一键清理缓存（应用缓存 + opcache + 阿里云 CDN 刷新）、微信绑定发码端点恢复、会员中心测评入口。发行 md5 5ee773f5… |
+| **v2.24.0** | **2026-11-24** | **账号体系正规化**：统一前台登录分流（会员 / 咨询师）、预约强制登录、废除查询码查询与短信登录、备份保留 30→7 天、专业版量表选项格式修复。发行 md5 eed37421… |
+| **v2.23.0** | **2026-11-24** | **P2 随访计划 + 经营驾驶舱 + 插件安装令**：`followup_plans` 周期随访、驾驶舱指标一页（CSV 导出）、《指标字典》冻结、插件下载按授权位校验（`internal_secret` 签名）。发行 md5 927bee2d…；新表迁移 `20261124_0005_followup_plans.sql` |
+| **v2.22.2** | **2026-11-24** | **定时自动备份**：`/admin/cron/backup`（cron_secret 鉴权，kind=db/full），备份服务统一、按钮与 cron 共用；端点回 `exec` 自诊断。发行 md5 670a57bd… |
+| **v2.22.1** | **2026-11-24** | **备份可用性补丁**：后台备份不再依赖外部命令——`disable_functions` 禁用 `exec/shell_exec/proc_open` 的环境（宝塔默认）此前点备份直接报错，现先探测再选路径，可用走 `mysqldump`、禁用或失败切内置纯 PHP 导出（`app/Services/PhpDbDumper.php`，PDO 读结构+数据、主键分页、边写边压缩），压缩不依赖 `gzip`；修复双层 gz（导出自身已压缩 + 外层再压，解压一次仍是压缩流，恢复误判坏包），现导出纯 SQL、外层只压一次；恢复路径实测（独立库完整导入、71 张表 / 4484 行逐表比对一致、演练库完整回滚），确认可恢复而非「生成成功」；前台资讯列表分页未定义变量告警修复。**运维要点**：备份验证的唯一硬标准是真导入一次并逐表对行数，不是「生成成功」。发行 md5 c4e0906e…；GitHub v2.22.1 同步（基础包 md5 35c1ee17…） |
+| **v2.22.0** | **2026-11-24** | **个案主线**：新增 `cases`/`case_sessions`（同刻仅一个 active 案，开案须有预约关系）、`case_records`/`case_record_versions`（草稿可改、锁定即定稿且升版、修订链 `amends_id`、快照只增不改、默认不可见）、`ai_tasks`（AI 只产草稿，三重闸门 + 外发脱敏）、`crisis_events`/`case_homeworks`/`case_followups`（未闭环危机常驻工作台，闭环必填结论；作业逾期、随访到期提醒）；历史咨询小结转只读；引入轻量迁移器（`database/migrations/*.sql` + `schema_migrations`，bootstrap 自动跑，可重复且并发安全）。运维要点：迁移失败只记日志不阻塞访问；`schema.sql` 由 migrations 生成，用 `cms-ops/tests/schema_check.php` 校验列+索引。插件随版 miniapp-pro 1.1.5 / sms-notify 1.1.6。发行 md5 94aa9d8b…；GitHub v2.22.0 同步（基础包 md5 246be5f6…） |
+| **v2.21.0** | **2026-11-24** | **安全加固**：咨询师数据域隔离（写记录须有预约关系，越权记日志）、会员登录会话轮换（五入口统一重建 session）、备份 AES-256-CBC 加密（`PSYENC1` 头 + 随机 IV，凭据文件导出，后台标注加密状态）、记录查阅留痕、AI 外发脱敏（手机号/身份证/邮箱/卡号，可全关外发）、`/install` 全路径 404、后台控制器目录诊断脚本迁出。**运维注意**：v2.21.0 之前的明文备份 `.sql.gz`/`.zip` 含会员手机号与咨询记录正文，需按「明文·待清理」清掉。发行 md5 7e579441…；GitHub v2.21.0 同步（基础包 md5 5dc8f7b2…） |
+| **v2.20.3** | **2026-11-23** | **插件授权位与升级分发修复**：授权位三通道写入（支付回调/主动查单/定时补签）幂等，以 `plugin_entitlement_grants` UNIQUE(order_id,slug) 保证「同一订单跑 100 次结果不变」；`latestCore($clientVer)` 无匹配返回 null（绝不 fallback 到最高版本包）；`register-release` 只退役 active 不碰 ladder；低版本客户走 ladder 阶梯包（当前 2.17.1 / 2.17.2）逐级升。发行 md5 6fc7aae2…；GitHub v2.20.3 同步（基础包 md5 f11580da…） |
+| **v2.20.0** | **2026-11-22** | **修复与会员体验**：微信绑定断点修复（intent 分流+直绑当前会员，wechat-login 1.0.2/wxhub-client 1.1.1）；Mailer SMTP context 根因修复+空授权码快速失败；我的预约待付费/去支付视图自算；AssessmentService 计分双结构归一化；MemberService::updateProfile。插件同步发行：miniapp-pro 1.1.1（会员全模块进小程序）、rtc-pro 1.1.3（电话进房+统一时间窗）。发行 md5 3466c359…（min_from=2.17.2）；GitHub v2.20.0 同步（基础包 md5 1cccb42b…）；授权发行服务 systemd 化重建（/tmp 版散佚致 AI 客服降级事故已修复） |
 | **v2.19.0** | **2026-11-19** | **专业内核 + AI Agent 就绪**：内核加固（事务/死锁自动重试/断线重连/慢查询、缓存单飞防击穿、上传 EXIF 剥离、Logger warning、`GET /healthz`）；AI 就绪（公开只读 JSON API `/api/public/*`、MCP Server `/mcp` 六工具、llms.txt、JSON-LD、robots AI 爬虫分区），新开关默认关闭；新插件 miniapp-pro 1.0.0、wechat-pay 1.2.1（小程序 JSAPI）。发行 md5 7a513a85…（min_from=2.17.2）；验收修复 MCP 关闭态 403（原 200）；GitHub v2.19.0 同步（基础包 md5 16ab6f32…） |
 | **v2.18.0** | **2026-11-19** | **时段预约免确认直付**（用户拍板）：免费时段提交即生效；需支付时段直跳收银台、支付成功自动确认（wechat-pay 1.2.0 applyCredit + 咨询师到账通知补齐 + 会员单条告知 + 收银台文案适配）；申请通道维持机构确认；后台列表标注免确认通道。发行 md5 dba06b8f…（min_from=2.17.2）；wechat-pay 1.2.0 md5 d9937ecd…；GitHub v2.18.0 同步 |
 | v2.9.1 | 待规划 | 签署归档增强、门店深度、EAP 完整版、忘记密码（邮件找回） |
@@ -342,7 +359,8 @@ v2.21.0 之前备份是明文 `.sql.gz` / `.zip`，内含会员手机号、姓�
 - 格式：`PSYENC1`（7 字节魔数）+ 16 字节随机 IV + 密文（PKCS7）。
 - 密钥：`config/config.php` 的 `secret_key` 经 `hash('sha256','backup|'.$secret)` 派生 32 字节；缺失时回退 `stats_salt`。
 - 导出凭据：走临时 `--defaults-extra-file`（0600，执行完立即删除），**不再把数据库密码拼进命令行**（原先同机 `ps` 可见）。
-- 滚动清理 30 天，只清本模块产物（`db-*`、`full-*`、`backup-*`），不动 `upgrade-backup-*`。
+- **v2.22.1 起不再强依赖外部命令**：宝塔等环境默认在 `php.ini` 的 `disable_functions` 里禁用 `exec / shell_exec / proc_open`，此时 `mysqldump` 与 `gzip` 都调不动。现先探测 `exec` 是否可用：可用走 `mysqldump`；被禁用或执行失败自动切到内置纯 PHP 导出（`app/Services/PhpDbDumper.php`，PDO 读结构+数据、主键分页、边写边压缩），压缩同样不依赖 `gzip` 命令。两条路径产出一致：外层只有**一层** gzip，解压一次即标准 SQL。
+- 本地滚动清理 **7 天**，只清本模块产物（`db-*`、`full-*`、`backup-*`），不动 `upgrade-backup-*`。
 - 升级回滚包 `upgrade-backup-*.zip` 含 `config/config.php`，创建后立即 `chmod 0600`。
 
 ### 14.2 管理台操作
@@ -355,6 +373,31 @@ v2.21.0 之前备份是明文 `.sql.gz` / `.zip`，内含会员手机号、姓�
 | 全量备份 | `full-YYYYmmdd-HHMMSS.zip.enc` | 全库 dump + `public/uploads`，zip 后加密 |
 
 列表页对未加密的旧文件标「明文·待清理」，迁移完成后用 14.4 的方式转换或删除。
+
+### 14.2.1 定时自动备份（v2.22.2 起）
+
+后台按钮只能手动点；要做「无人值守」，在服务器 crontab 加两行（`cron_secret` 见 `config/config.php`）：
+
+```bash
+# 每日 04:30 数据库备份（加密 .enc，本地保留 7 天）
+30 4 * * * curl -s -H 'X-Cron-Secret: <cron_secret>' 'https://站点域名/admin/cron/backup?kind=db' >/dev/null 2>&1
+# 每周日 04:50 全量备份（库 + uploads）
+50 4 * * 0 curl -s -H 'X-Cron-Secret: <cron_secret>' 'https://站点域名/admin/cron/backup?kind=full' >/dev/null 2>&1
+```
+
+端点返回 JSON（`ok/kind/msg/file/bytes/exec`），`exec` 会告诉你是走 `mysqldump` 还是内置 PHP 导出——用于确认当前环境是否禁用了外部命令。无密钥一律 403。
+
+### 14.2.2 异地副本（发行方自用，客户可按同思路配置）
+
+`/root/bin/offsite-backup.sh`：把最近 3 天的 `db-*.enc` / `full-*.enc` 推到新加坡主机 `ubuntu@161.118.234.81:~/psyisle-backups`，逐文件校验字节数，远端保留 30 天。仅推密文，异地也无明文。密钥 `/root/.ssh/id_offsite_backup`，对端 `authorized_keys` 已加 `restrict,from="106.52.109.65"` 限制。定时：每天 05:05（在 04:30 备份之后）。
+
+### 14.2.3 整库演练与月度自动演练（发行方已建，客户可复制思路）
+
+- **专用演练库**：`psyisle_drill`（按宝塔面板规则创建并在面板登记，id=20，备注「非生产」）。**绝不触碰生产库**。
+- **一键整库演练**：`/root/bin/db-restore-drill.sh` —— 取最新 `db-*.enc` → 解密 → 清空演练库 → 整库导入 → 与生产库逐表比行数 → 写 `/root/restore-drill.log`。
+- **月度自动**：cron `30 5 1 * *`（每月 1 日 05:30）。判据：演练库行数**多于**生产库视为异常（生产库在备份后新增属于正常漂移；`users` 允许多 3 个以内，那是回归探针账号）。
+- **WorkBuddy 已完成实测**（2026-11-24）：71 表全部建成、4 条迁移齐备；临时把 ww 配置指向演练库后站点前台/健康检查全部 200 且能正常读写（visit_logs 有写入），随后配置按 md5 精确还原。即「解密 → 建库 → 导入 → 站点立即可用」全链路验证通过。
+- 表级小演练（不动库结构）：`cms-ops/tools/restore-drill.sh`（抽几张表改 `zzr_` 前缀导入比对后即删）。
 
 ### 14.3 恢复步骤（服务器上执行）
 
@@ -385,6 +428,6 @@ shred -u /tmp/restore.sql /tmp/restore.sql.gz 2>/dev/null || rm -f /tmp/restore.
 ### 14.5 已知边界
 
 - 密钥与备份同机（`config.php` 0600）：防"文件被拷走/被下载"，**不防"整机被控"**。
-- 异地副本尚未自动化（需对象存储或第二台主机），目前只有本机 `storage/backups`。
-- 恢复演练尚未做完整一次（只做了加密/解密往返校验），**首次真实恢复前必须在测试库演练**。
+- 异地副本为独立脚本方案（见 §14.2.2），不由后台备份模块直接管理；不能替代本地 `storage/backups` 的 7 天滚动保留。
+- **恢复演练已完成**（WorkBuddy，2026-11-24；见 §14.2.3），不再列为待办；首次真实恢复或重大备份格式变更前仍应在测试库演练。
 - 密钥丢失 = 备份永久不可解，`config.php` 必须与备份分开保管。

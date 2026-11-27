@@ -11,7 +11,8 @@
         <input type="tel" name="phone" required placeholder="11 位手机号，作为登录账号" maxlength="11" pattern="1[3-9]\d{9}">
       </label>
       <label class="field"><span class="label">设置密码 <em>*</em></span>
-        <input type="password" name="password" required minlength="8" placeholder="至少 8 位，含大写字母、小写字母和数字" autocomplete="new-password">
+        <input type="password" name="password" required minlength="8" placeholder="请输入密码" autocomplete="new-password">
+        <span class="field-help"><?= e(\app\Core\PasswordPolicy::RULE_TEXT) ?></span>
       </label>
       <label class="field"><span class="label">怎么称呼你</span>
         <input type="text" name="name" maxlength="40" placeholder="昵称或真实姓名（选填）">

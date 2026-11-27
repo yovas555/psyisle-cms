@@ -107,11 +107,17 @@ class Mcp
                     ], $rows);
                     return self::tool(json_encode($list, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
                 case 'list_counselors':
-                    $rows = Database::fetchAll("SELECT name, slug, title, specialties FROM counselors WHERE status=1 ORDER BY sort LIMIT 30");
-                    $list = array_map(fn($c) => [
-                        'name' => $c['name'], 'title' => $c['title'],
-                        'specialties' => $c['specialties'], 'url' => url('/counselors/' . $c['slug']),
-                    ], $rows);
+                    $rows = Database::fetchAll("SELECT id, name, slug, title, specialties, credentials, supervision, audiences, unsuitable_topics, personal_therapy FROM counselors WHERE status=1 ORDER BY sort LIMIT 30");
+                    $latest = \app\Services\CounselorTrust::latestForMany($rows);
+                    $list = array_map(function ($c) use ($latest) {
+                        $trust = \app\Services\CounselorTrust::publicProfile($c, $latest[(int)$c['id']] ?? []);
+                        return [
+                            'name' => $c['name'], 'title' => $c['title'],
+                            'specialties' => $c['specialties'], 'url' => url('/counselors/' . $c['slug']),
+                            'service_boundaries' => ['audiences' => $trust['audiences'], 'unsuitable_topics' => $trust['unsuitable_topics']],
+                            'verification_status' => array_combine(array_keys($trust['verifications']), array_map(fn($v) => $v['status'], $trust['verifications'])),
+                        ];
+                    }, $rows);
                     return self::tool(json_encode($list, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
                 case 'booking_rules':
                     return self::tool(json_encode([
@@ -173,6 +179,7 @@ class Mcp
                         'ip' => $req->ip(),
                         'created_at' => date('Y-m-d H:i:s'),
                     ]);
+                    \app\Services\BookingLifecycle::ensureSnapshot((int)$id);
                     \app\Services\NotifyService::push('booking', '收到新预约（AI Agent 代提交）',
                         "姓名：{$name}\n手机：" . mask_phone($phone) . "\n期望：{$date} {$slot}\n方式：{$data['method']}\n查询码：{$code}\n来源：MCP（AI 助手代提交，以机构确认为准）",
                         ['type' => 'booking', 'id' => $id], true);

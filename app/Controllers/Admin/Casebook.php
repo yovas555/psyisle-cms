@@ -5,6 +5,7 @@ namespace app\Controllers\Admin;
 
 use app\Core\Csrf;
 use app\Core\Database;
+use app\Core\Logger;
 use app\Core\Request;
 use app\Core\Session;
 use app\Services\AiDraftService;
@@ -13,6 +14,8 @@ use app\Services\CasePolicy;
 use app\Services\CaseRecordService;
 use app\Services\CaseService;
 use app\Services\FollowupPlanService;
+use app\Services\PostSessionService;
+use InvalidArgumentException;
 
 /**
  * 个案管理（P1-A）
@@ -59,16 +62,21 @@ class Casebook extends CounselorHome
         Csrf::guard();
         $me = $this->me();
         $cid = (int)$me['id'];
-        $r = CaseService::open($cid, [
-            'member_id' => $req->post('member_id', 0),
-            'title' => $req->post('title', ''),
-            'presenting' => $req->post('presenting', ''),
-            'goals' => $req->post('goals', ''),
-            'risk_level' => $req->post('risk_level', 'low'),
-            'opened_at' => $req->post('opened_at', ''),
-            'booking_id' => $req->post('booking_id', 0),
-            'created_by' => (int)(Session::get('admin_user')['id'] ?? 0),
-        ]);
+        try {
+            $r = CaseService::open($cid, [
+                'member_id' => $req->post('member_id', 0),
+                'title' => $req->post('title', ''),
+                'presenting' => $req->post('presenting', ''),
+                'goals' => $req->post('goals', ''),
+                'risk_level' => $req->post('risk_level', 'low'),
+                'opened_at' => $req->post('opened_at', ''),
+                'booking_id' => $req->post('booking_id', 0),
+                'created_by' => (int)(Session::get('admin_user')['id'] ?? 0),
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            Session::flash('error', $e->getMessage());
+            \app\Core\ResponseRedirect('/admin/counselor-home/cases');
+        }
         if (empty($r['ok'])) {
             Session::flash('error', (string)$r['msg']);
             \app\Core\ResponseRedirect('/admin/counselor-home/cases');
@@ -77,6 +85,14 @@ class Casebook extends CounselorHome
             'member_id' => (int)$req->post('member_id', 0),
             'risk' => CasePolicy::normalizeRisk((string)$req->post('risk_level', 'low')),
         ]);
+        $bookingId = (int)$req->post('booking_id', 0);
+        if ($bookingId > 0) {
+            try {
+                PostSessionService::retryBridge($bookingId, $cid, (int)$r['id']);
+            } catch (\Throwable $t) {
+                Logger::warning('case', 'post-session bridge retry failed: ' . $t->getMessage());
+            }
+        }
         Session::flash('success', (string)$r['msg']);
         \app\Core\ResponseRedirect('/admin/counselor-home/cases/' . (int)$r['id']);
     }
@@ -498,7 +514,7 @@ class Casebook extends CounselorHome
         $me = $this->me();
         $caseId = (int)($p['id'] ?? 0);
         $fid = (int)($p['fid'] ?? 0);
-        $r = CaseCareService::finishFollowup($fid, (int)$me['id'], (string)$req->post('result', ''), (string)$req->post('act', '') === 'skip');
+        $r = CaseCareService::finishFollowup($fid, (int)$me['id'], $caseId, (string)$req->post('result', ''), (string)$req->post('act', '') === 'skip');
         if (empty($r['ok'])) Session::flash('error', (string)$r['msg']);
         else {
             $this->audit('case.followup_finish', 'case_followups', $fid, ['case_id' => $caseId, 'skip' => (string)$req->post('act', '') === 'skip']);

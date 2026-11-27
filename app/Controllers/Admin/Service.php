@@ -38,10 +38,49 @@ class Service extends Base
         'seo_description' => ['SEO 描述', 'textarea', ['rows' => 2]],
     ];
 
+    protected function collect(\app\Core\Request $req): array
+    {
+        $data = parent::collect($req);
+        foreach (['price_from', 'price_to'] as $field) {
+            $raw = $req->post($field, '');
+            if ($raw !== '' && !preg_match('/^\d{1,7}(?:\.\d{1,2})?$/', (string)$raw)) $data[$field] = -1.0;
+        }
+        return $data;
+    }
+
     protected function beforeSave(array &$data, ?int $id, string $mode): void
     {
-        if (empty($data['slug'])) {
-            $data['slug'] = \app\Core\Str::slugify($data['name'] ?? '') ?: 's-' . date('YmdHis');
+        $name = trim((string)($data['name'] ?? ''));
+        if ($name === '') {
+            \app\Core\Session::flash('error', '服务项目名称不能为空');
+            \app\Core\ResponseRedirect('/admin/services' . ($id ? '/' . $id . '/edit' : '/create'));
         }
+        $data['name'] = $name;
+        foreach (['price_from', 'price_to'] as $field) {
+            $value = $data[$field] ?? null;
+            if ($value !== null && $value !== '' && !preg_match('/^\d{1,7}(?:\.\d{1,2})?$/', (string)$value)) {
+                \app\Core\Session::flash('error', '收费必须是 0 到 9999999.99 之间的数字');
+                \app\Core\ResponseRedirect('/admin/services' . ($id ? '/' . $id . '/edit' : '/create'));
+            }
+            $data[$field] = $value === null || $value === '' ? null : round((float)$value, 2);
+        }
+        if ($data['price_from'] !== null && $data['price_to'] !== null && $data['price_from'] > $data['price_to']) {
+            \app\Core\Session::flash('error', '收费起不能高于收费止');
+            \app\Core\ResponseRedirect('/admin/services' . ($id ? '/' . $id . '/edit' : '/create'));
+        }
+        if (empty($data['slug'])) {
+            $data['slug'] = \app\Core\Str::slugify($data['name']) ?: 's-' . date('YmdHis');
+        }
+        $data['slug'] = mb_substr((string)$data['slug'], 0, 60);
+        if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*$/', (string)$data['slug'])) {
+            \app\Core\Session::flash('error', 'URL 别名只能使用字母、数字、连字符或下划线');
+            \app\Core\ResponseRedirect('/admin/services' . ($id ? '/' . $id . '/edit' : '/create'));
+        }
+    }
+
+    protected function afterDelete(int $id): void
+    {
+        \app\Core\Database::delete('counselor_services', 'service_id=?', [$id]);
+        parent::afterDelete($id);
     }
 }

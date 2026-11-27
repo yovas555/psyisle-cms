@@ -8,7 +8,7 @@
     <?php else: ?>
     <div class="card-grid service-grid">
       <?php foreach ($rows as $s): ?>
-      <a class="card service-card" href="<?= url('/services/' . $s['slug']) ?>">
+      <a class="card service-card" href="<?= e(url('/services/' . $s['slug'])) ?>">
         <?php if ($s['cover']): ?><div class="card-media"><img src="<?= e($s['cover']) ?>" alt="<?= img_alt($s['name']) ?>" loading="lazy"></div><?php endif; ?>
         <div class="card-body">
           <h3><?= e($s['name']) ?></h3>

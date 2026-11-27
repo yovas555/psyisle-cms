@@ -29,7 +29,7 @@ class LicenseService
         'personal' => ['ai_chat' => true, 'booking' => true, 'max_counselors' => 1,  'remove_brand' => false, 'multisite' => false],
         'studio'   => ['ai_chat' => true, 'booking' => true, 'max_counselors' => 5,  'remove_brand' => false, 'multisite' => false],
         'pro'      => ['ai_chat' => true, 'booking' => true, 'max_counselors' => 20, 'remove_brand' => false, 'multisite' => true],
-        'lifetime' => ['ai_chat' => true, 'booking' => true, 'max_counselors' => 99, 'remove_brand' => true,  'multisite' => true],
+        'lifetime' => ['ai_chat' => true, 'booking' => true, 'max_counselors' => 99, 'remove_brand' => true,  'multisite' => true, 'commercial_plugins' => true],
     ];
     private const EDITION_NAMES = [
         'trial' => '试用', 'personal' => '个人版（180天）', 'studio' => '工作室版',
@@ -79,10 +79,11 @@ class LicenseService
         if ($activateUrl !== '') {
             [$ok, $msg, $token] = self::activateRemote($activateUrl, $key, $edition, $domain);
             if ($ok) {
-                self::persistLicense($key, $edition, $domain, $token);
-                NotifyService::push('license', '远程激活成功：' . self::EDITION_NAMES[$edition],
+                $effectiveEdition = self::editionFromToken($edition, $token);
+                self::persistLicense($key, $effectiveEdition, $domain, $token);
+                NotifyService::push('license', '远程激活成功：' . self::EDITION_NAMES[$effectiveEdition],
                     '域名：' . $domain . '，token 有效期 7 天（cron 心跳自动续期）');
-                return [true, '远程激活成功：' . self::EDITION_NAMES[$edition]];
+                return [true, '远程激活成功：' . self::EDITION_NAMES[$effectiveEdition]];
             }
             // 远程失败 → 允许离线 HMAC 码兜底
             return [false, '远程激活失败：' . $msg . '（离线应急授权码可兜底激活）'];
@@ -102,7 +103,11 @@ class LicenseService
             if ($exists['domain'] && $exists['domain'] !== $domain) {
                 return [false, '该授权码已绑定其他域名（' . $exists['domain'] . '）'];
             }
-            Database::update('licenses', ['activated_at' => $exists['activated_at'] ?: $now, 'last_check_at' => $now, 'status' => 'active'], 'id=?', [$exists['id']]);
+            Database::update('licenses', [
+                'activated_at' => $exists['activated_at'] ?: $now, 'last_check_at' => $now,
+                'status' => 'active', 'edition' => $edition, 'domain' => $domain, 'expires_at' => $expires,
+                'features' => json_encode(self::EDITION_FEATURES[$edition], JSON_UNESCAPED_UNICODE),
+            ], 'id=?', [$exists['id']]);
         } else {
             self::persistLicense($key, $edition, $domain, null, $expires);
         }
@@ -148,6 +153,15 @@ class LicenseService
         }
         // edition/features 以发行方 payload 为准
         $edition = (string)($payload['edition'] ?? $edition);
+        if (!isset(self::EDITION_FEATURES[$edition])) return [false, '授权 token 版本无效', null];
+        if ($edition === 'lifetime') {
+            if (!empty($payload['expires_at'])) return [false, '永久授权 token 不应包含到期时间', null];
+        } else {
+            $expires = (string)($payload['expires_at'] ?? '');
+            if ($expires === '' || strtotime($expires) === false || strtotime($expires) <= time()) {
+                return [false, '授权 token 缺少有效到期时间', null];
+            }
+        }
         $token = [
             'payload' => $payload,
             'token_expires_at' => (string)($payload['token_expires_at'] ?? date('c', time() + 7 * 86400)),
@@ -156,22 +170,39 @@ class LicenseService
         return [true, 'token 已验证', $token];
     }
 
+    private static function editionFromToken(string $fallback, ?array $token): string
+    {
+        $edition = (string)($token['payload']['edition'] ?? $fallback);
+        if (!isset(self::EDITION_FEATURES[$edition])) {
+            throw new \InvalidArgumentException('授权 token 版本无效');
+        }
+        return $edition;
+    }
+
     private static function persistLicense(string $key, string $edition, string $domain, ?array $token, ?string $expires = null): void
     {
+        $edition = self::editionFromToken($edition, $token);
         $features = self::EDITION_FEATURES[$edition] ?? [];
         if ($token && isset($token['payload']['features']) && is_array($token['payload']['features'])) {
             $features = array_merge($features, $token['payload']['features']);
         }
+        if ($edition === 'lifetime') {
+            $features['commercial_plugins'] = true;
+        }
+        if ($token) {
+            $rawExpires = $token['payload']['expires_at'] ?? null;
+            $expires = $rawExpires ? date('Y-m-d H:i:s', (int)strtotime((string)$rawExpires)) : null;
+        }
         $now = date('Y-m-d H:i:s');
         $row = [
-            'license_key' => $key, 'domain' => in_array($edition, ['trial', 'personal'], true) ? null : $domain,
+            'license_key' => $key, 'domain' => $domain,
             'edition' => $edition, 'features' => json_encode($features, JSON_UNESCAPED_UNICODE),
             'last_check_at' => $now, 'status' => 'active',
         ];
         $exists = Database::fetch('SELECT id FROM licenses WHERE license_key=?', [$key]);
         if ($exists) {
-            Database::run('UPDATE licenses SET last_check_at=?, status=?, edition=?, features=?, domain=COALESCE(domain,?) WHERE id=?',
-                [$now, 'active', $edition, $row['features'], $domain, $exists['id']]);
+            Database::run('UPDATE licenses SET last_check_at=?, status=?, edition=?, features=?, domain=?, expires_at=? WHERE id=?',
+                [$now, 'active', $edition, $row['features'], $domain, $expires, $exists['id']]);
         } else {
             Database::insert('licenses', $row + [
                 'issued_at' => $now, 'activated_at' => $now,
@@ -208,8 +239,7 @@ class LicenseService
         if ($exp - time() > 3 * 86400) return ['mode' => 'remote', 'skipped' => 'token fresh'];
         [, , $token] = self::activateRemote($url, (string)$lic['license_key'], (string)$lic['edition'], (string)$lic['domain']);
         if ($token) {
-            self::saveToken($token);
-            Database::update('licenses', ['last_check_at' => date('Y-m-d H:i:s')], 'id=?', [$lic['id']]);
+            self::persistLicense((string)$lic['license_key'], (string)$token['payload']['edition'], (string)$lic['domain'], $token);
             return ['mode' => 'remote', 'renewed' => true];
         }
         Database::update('licenses', ['last_check_at' => date('Y-m-d H:i:s')], 'id=?', [$lic['id']]);
@@ -257,6 +287,7 @@ class LicenseService
             'counselors' => ['used' => $usedC, 'max' => $maxC, 'over' => $usedC > $maxC],
             'multisite' => (bool)($feats['multisite'] ?? false),
             'remove_brand' => (bool)($feats['remove_brand'] ?? false),
+            'commercial_plugins' => (bool)($feats['commercial_plugins'] ?? false),
             'ai_chat' => (bool)($feats['ai_chat'] ?? true),
             'percent' => $percent,
         ];
@@ -302,14 +333,32 @@ class LicenseService
 
     public static function rebuildIntegrityBaseline(): void
     {
+        if (is_link(STORAGE) || !is_dir(STORAGE)) throw new \RuntimeException('完整性基线目录不可用');
+        $target = STORAGE . '/integrity.json';
+        if (is_link($target)) throw new \RuntimeException('完整性基线文件不得为符号链接');
         $files = [];
         foreach (self::INTEGRITY_FILES as $rel) {
             $full = ROOT . '/' . $rel;
-            $files[$rel] = is_file($full) ? hash_file('sha256', $full) : null;
+            if (!is_file($full)) { $files[$rel] = null; continue; }
+            $hash = hash_file('sha256', $full);
+            if ($hash === false) throw new \RuntimeException('无法读取核心文件：' . $rel);
+            $files[$rel] = $hash;
         }
-        @file_put_contents(STORAGE . '/integrity.json', json_encode([
+        $json = json_encode([
             'baseline_at' => date('c'), 'files' => $files,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) throw new \RuntimeException('完整性基线编码失败');
+        $tmp = $target . '.tmp-' . bin2hex(random_bytes(8));
+        try {
+            $written = file_put_contents($tmp, $json, LOCK_EX);
+            if ($written === false || $written !== strlen($json)) throw new \RuntimeException('完整性基线写入失败');
+            if (!chmod($tmp, 0644)) throw new \RuntimeException('完整性基线权限设置失败');
+            if (hash_file('sha256', $tmp) !== hash('sha256', $json)) throw new \RuntimeException('完整性基线临时文件回读不一致');
+            if (!rename($tmp, $target)) throw new \RuntimeException('完整性基线原子替换失败');
+            if (file_get_contents($target) !== $json) throw new \RuntimeException('完整性基线写入后回读不一致');
+        } finally {
+            if (is_file($tmp)) @unlink($tmp);
+        }
     }
 
     /** 返回 [state, bad[]]：ok / missing / tampered */

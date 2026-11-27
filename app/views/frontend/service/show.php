@@ -23,13 +23,16 @@
 
     <?php if ($counselors): ?>
     <section class="cp-section">
-      <h2>可预约咨询师</h2>
+      <h2>提供此服务的咨询师</h2>
       <div class="chip-row">
         <?php foreach ($counselors as $c): ?>
-        <a class="chip" href="<?= url('/counselors/' . $c['slug']) ?>"><?= e($c['name']) ?><?= $c['title'] ? ' · ' . e($c['title']) : '' ?></a>
+        <a class="chip" href="<?= e(url('/counselors/' . $c['slug'])) ?>"><?= e($c['name']) ?><?= $c['title'] ? ' · ' . e($c['title']) : '' ?></a>
         <?php endforeach; ?>
       </div>
+      <p class="hint">仅展示机构已明确关联此服务的咨询师；咨询方式与可约时间请查看个人档案。</p>
     </section>
+    <?php else: ?>
+    <p class="hint">机构尚未关联可提供此服务的咨询师，可先提交预约申请，由机构协助安排。</p>
     <?php endif; ?>
   </div>
 </section>

@@ -6,6 +6,7 @@ namespace app\Controllers;
 use app\Core\Database;
 use app\Core\Request;
 use app\Core\View;
+use app\Services\BookingPricing;
 use app\Services\SeoService;
 use app\Services\StatsService;
 
@@ -43,7 +44,7 @@ class Service
         View::render('service/show', [
             'meta' => $meta,
             's' => $s,
-            'counselors' => Database::fetchAll('SELECT name, slug, title FROM counselors WHERE status=1 ORDER BY sort LIMIT 6'),
+            'counselors' => BookingPricing::counselorsForService((int)$s['id']),
             'crumbs' => ['首页' => url('/'), '咨询服务' => url('/services'), $s['name'] => ''],
             'breadcrumbSchema' => SeoService::breadcrumbSchema(['首页' => url('/'), '咨询服务' => url('/services'), $s['name'] => url('/services/' . $s['slug'])]),
             'extraSchema' => ['service' => SeoService::serviceSchema($s)],

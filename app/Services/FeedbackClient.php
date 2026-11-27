@@ -11,7 +11,7 @@ use app\Core\Logger;
 
 /**
  * 内置反馈客户端（v2.16.0 #67）：站点→CMS 管理台 反馈通道
- * 契约：cms-site/api/API-DOCS.txt v1.1.0
+ * 契约：cms-site/api/API-DOCS.txt v1.2.0
  * 凭据：feedback.site_key / feedback.site_secret（secret 加密存储）
  */
 class FeedbackClient
@@ -23,6 +23,47 @@ class FeedbackClient
         return trim((string)setting('feedback.site_key', '')) !== ''
             && trim(Crypto::decrypt((string)setting('feedback.site_secret', ''))) !== ''
             && trim((string)setting('feedback.api_url', self::API_BASE)) !== '';
+    }
+
+    /**
+     * 轮换 CMS 反馈密钥。
+     * 新密钥仅通过可选引用参数交给本地保存流程；返回消息绝不携带密钥。
+     *
+     * @return array{0:bool,1:string}
+     */
+    public static function rotateSecret(?string &$secret = null): array
+    {
+        $secret = '';
+        if (!self::configured()) return [false, '反馈通道未配置（需 site_key/site_secret）'];
+        $oldSecret = (string)Crypto::decrypt((string)setting('feedback.site_secret', ''));
+        $payload = '{}';
+        $ts = (string)time();
+        $nonce = bin2hex(random_bytes(12));
+        $sig = hash_hmac('sha256', $ts . "\n" . $nonce . "\n" . $payload, $oldSecret);
+        $apiUrl = rtrim((string)setting('feedback.api_url', self::API_BASE), '/');
+        try {
+            [$sent, $status, $resp] = Http::post($apiUrl . '/v1/feedback/rotate-secret', $payload, [
+                'Content-Type: application/json',
+                'X-Site-Key: ' . (string)setting('feedback.site_key', ''),
+                'X-Timestamp: ' . $ts,
+                'X-Nonce: ' . $nonce,
+                'X-Signature: ' . $sig,
+            ], 15);
+        } catch (\Throwable $t) {
+            return [false, '轮换失败：无法连接 CMS，未保存本地配置'];
+        }
+        $r = json_decode((string)$resp, true);
+        $newSecret = is_array($r) && isset($r['secret']) && is_string($r['secret']) ? $r['secret'] : '';
+        if (!$sent || (int)$status !== 200 || !is_array($r) || ($r['ok'] ?? false) !== true
+            || preg_match('/^[a-f0-9]{48}$/D', $newSecret) !== 1
+            || hash_equals($oldSecret, $newSecret)) {
+            if (is_array($r) && (string)($r['error'] ?? '') === 'secret_changed') {
+                return [false, '轮换失败：反馈密钥已被其他进程轮换，请重新配置后重试'];
+            }
+            return [false, '轮换失败：CMS 未确认轮换，未保存本地配置'];
+        }
+        $secret = $newSecret;
+        return [true, 'CMS 已轮换反馈密钥'];
     }
 
     /** 提交反馈 */

@@ -26,7 +26,7 @@ class User extends Base
         'display_name' => ['显示名', 'text', []],
         'email' => ['邮箱', 'text', []],
         'role_id' => ['角色', 'role_select', []],
-        'password' => ['密码', 'password', ['hint' => '至少 8 位，须包含大写字母、小写字母和数字；编辑时留空表示不修改']],
+        'password' => ['密码', 'password', ['hint' => \app\Core\PasswordPolicy::RULE_TEXT . '；编辑时留空表示不修改']],
         'status' => ['启用', 'switch', []],
     ];
 
@@ -159,7 +159,7 @@ class User extends Base
         \app\Core\ResponseRedirect('/admin/users');
     }
 
-    /** 强密码策略（v2.17.0 统一 PasswordPolicy：≥8 位含大小写+数字） */
+    /** 统一密码策略：至少 8 位，四类字符任选两类或以上 */
     private static function assertStrongPassword(string $pwd): void
     {
         $err = \app\Core\PasswordPolicy::check($pwd);

@@ -24,7 +24,7 @@
     <section class="cp-section"><h2>擅长「<?= e($tag) ?>」的咨询师</h2>
       <div class="chip-row">
         <?php foreach ($counselors as $c): ?>
-        <a class="chip" href="<?= url('/counselors/' . $c['slug']) ?>"><?= e($c['name']) ?> · <?= e(str_take((string)$c['title'], 14, '')) ?></a>
+        <a class="chip" href="<?= e(url('/counselors/' . $c['slug'])) ?>"><?= e($c['name']) ?> · <?= e(str_take((string)$c['title'], 14, '')) ?></a>
         <?php endforeach; ?>
       </div>
     </section>
@@ -34,7 +34,7 @@
     <section class="cp-section"><h2>相关服务</h2>
       <div class="chip-row">
         <?php foreach ($services as $s): ?>
-        <a class="chip" href="<?= url('/services/' . $s['slug']) ?>"><?= e($s['name']) ?></a>
+        <a class="chip" href="<?= e(url('/services/' . $s['slug'])) ?>"><?= e($s['name']) ?></a>
         <?php endforeach; ?>
       </div>
     </section>

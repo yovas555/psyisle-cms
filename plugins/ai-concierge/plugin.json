@@ -1,7 +1,7 @@
 {
     "slug": "ai-concierge",
     "name": "AI 客服配置",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "PsyIsle Official",
     "description": "接入 OpenAI 兼容大模型（DeepSeek / 通义 / 智谱 / Kimi），知识库优先应答，角色与附加提示词可视化配置，未答自动提醒人工接手。危机干预兜底在核心层强制生效，不受本插件开关影响。",
     "min_cms_version": "1.9.0",
@@ -75,6 +75,36 @@
             "help": "追加在角色设定之后，例如「提及费用时引导到咨询服务页」"
         }
     ],
-    "signature": "Ax54dXCMw+fvjPONTduxM16qoNuzBtyoloZqOfmvdvlYKBg/TQiOHhnvs5UzDpp0saP4PCIRUcdQbzAWcesMCg==",
-    "changelog": "v1.0.2：后台导航分组（v2.8.1 导航重组）\n新增 Agnes AI 服务商预设（含中国区）；endpoint 兼容 /v1 结尾；改名「AI 客服配置」"
+    "presets": {
+        "deepseek": {
+            "url": "https://api.deepseek.com",
+            "model": "deepseek-chat"
+        },
+        "agnes": {
+            "url": "https://apihub.agnes-ai.com/v1",
+            "model": "agnes-2.5-flash"
+        },
+        "agnes-cn": {
+            "url": "https://api.agnes-ai.cn/v1",
+            "model": "agnes-2.5-flash"
+        },
+        "tongyi": {
+            "url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "qwen-plus"
+        },
+        "zhipu": {
+            "url": "https://open.bigmodel.cn/api/paas/v4",
+            "model": "glm-4-flash"
+        },
+        "kimi": {
+            "url": "https://api.moonshot.cn/v1",
+            "model": "moonshot-v1-8k"
+        },
+        "openai": {
+            "url": "https://api.openai.com/v1",
+            "model": "gpt-4o-mini"
+        }
+    },
+    "signature": "2Afs6kcG/OcQYi0DP0b+x7lTfJbQbmOVKlDNHMOQbaALxKZguHw1Ay26Elj440K71eB/8UmpR1m3MY7s0/iXDQ==",
+    "changelog": "v1.0.3：修复服务商预设被渲染为文本框导致无法自动填充的问题；预设地址与模型改由签名清单统一提供，并兼容旧配置中的服务商显示值。"
 }

@@ -156,30 +156,56 @@ class PluginManager
     public static function saveSettings(string $slug, array $post): int
     {
         $meta = self::get($slug);
-        $n = 0;
+        $writes = [];
+        $values = [];
         foreach ($meta['settings'] ?? [] as $f) {
             $key = (string)($f['key'] ?? '');
             if ($key === '') continue;
-            $pk = str_replace('.', '_', $key); // 表单 name 用下划线
+            $values[$key] = setting($key, (string)($f['default'] ?? ''));
+        }
+        foreach ($meta['settings'] ?? [] as $f) {
+            $key = (string)($f['key'] ?? '');
+            if ($key === '') continue;
+            $pk = str_replace('.', '_', $key);
             $type = (string)($f['type'] ?? 'text');
             if ($type === 'switch') {
-                Model::saveSetting($key, !empty($post[$pk]) ? '1' : '0', 'plugin:' . $slug);
-                $n++;
-                continue;
+                $val = !empty($post[$pk]) ? '1' : '0';
+            } else {
+                if (!array_key_exists($pk, $post)) continue;
+                $val = trim((string)$post[$pk]);
+                if ($type === 'number' && $val !== '' && !is_numeric($val)) {
+                    throw new \InvalidArgumentException((string)($f['label'] ?? $key) . '必须是数字');
+                }
+                if ($type === 'select') {
+                    $options = array_map('strval', array_keys((array)($f['options'] ?? [])));
+                    if (!in_array($val, $options, true)) {
+                        throw new \InvalidArgumentException((string)($f['label'] ?? $key) . '取值无效');
+                    }
+                }
+                if (Crypto::isSecretKey($key)) {
+                    if (Crypto::isMask($val)) continue;
+                    $values[$key] = $val;
+                    if ($val === '') {
+                        $writes[$key] = '';
+                        continue;
+                    }
+                    $val = Crypto::encrypt($val);
+                    if (!Crypto::isEncrypted($val)) throw new \InvalidArgumentException((string)($f['label'] ?? $key) . '加密失败，未保存');
+                }
             }
-            if (!array_key_exists($pk, $post)) continue;
-            $val = trim((string)$post[$pk]);
-            if ($type === 'number' && $val !== '' && !is_numeric($val)) continue;
-            // 敏感配置：掩码/空值不修改（v2.17.0 修复：空值此前会 encrypt('') 覆盖已有密钥——升级验收保存一次即抹掉 site_secret 的事故根因），新值加密
-            if (Crypto::isSecretKey($key)) {
-                if (Crypto::isMask($val) || $val === '') continue;
-                $val = Crypto::encrypt($val);
-            }
+            $values[$key] = $val;
+            $writes[$key] = $val;
+        }
+        $class = self::load($slug);
+        if ($class && method_exists($class, 'validateSettings')) {
+            [$ok, $msg] = $class::validateSettings($post, $values);
+            if (!$ok) throw new \InvalidArgumentException((string)$msg);
+        }
+        foreach ($writes as $key => $val) {
             Model::saveSetting($key, $val, 'plugin:' . $slug);
-            $n++;
         }
         Cache::forget('settings_all');
-        return $n;
+        return count($writes);
     }
 
     // ==================== 菜单与路由 ====================

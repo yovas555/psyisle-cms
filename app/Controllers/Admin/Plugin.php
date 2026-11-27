@@ -35,7 +35,12 @@ class Plugin extends Base
     {
         Csrf::guard();
         $slug = (string)$p['slug'];
-        $n = PluginManager::saveSettings($slug, $req->posts());
+        try {
+            $n = PluginManager::saveSettings($slug, $req->posts());
+        } catch (\InvalidArgumentException $e) {
+            Session::flash('error', $e->getMessage());
+            \app\Core\ResponseRedirect('/admin/plugin/' . $slug);
+        }
         $this->audit('plugin.settings', 'plugins', $slug, ['count' => $n]);
         Session::flash('success', "已保存 {$n} 项插件设置");
         \app\Core\ResponseRedirect('/admin/plugin/' . $slug);
