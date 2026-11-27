@@ -82,7 +82,7 @@ class App
         $r->get('/chat/poll', 'Chat@poll');
         $r->post('/chat/contact', 'Chat@contact');
 
-        // ===== 公开验证码（前台表单用；admin/captcha 受后台门禁保护不可前台引用）=====
+        // ===== 公开验证码（前台与后台登录共用）=====
         $r->get('/captcha', 'Admin\Auth@captcha');
 
         // ===== 会员自助中心（独立会话域 member_user）=====
@@ -352,19 +352,27 @@ class App
             }
             if (!$ok) { http_response_code(403); echo 'forbidden'; exit; }
         }
-        // 入口门禁
+        // 登录与已认证会话不依赖浏览器保存入口 cookie
         $gate = trim((string)setting('security.admin_gate', ''));
         if ($gate === '') return;
-        if (($_COOKIE['psy_admin_gate'] ?? '') === hash('sha256', $gate)) return; // 已持有入口 cookie
+        if (Session::get('admin_user')) return;
+        $path = rtrim($uri, '/') ?: '/';
+        if (in_array($path, ['/admin/login', '/admin/captcha', '/admin/totp'], true)) return;
+        $gateCookie = (string)($_COOKIE['psy_admin_gate'] ?? '');
+        if ($gateCookie !== '' && hash_equals(hash('sha256', $gate), $gateCookie)) return;
         // 入口请求：/admin?gate=<值>（仅 GET /admin 精确路径放行设置 cookie）
         $given = (string)($_GET['gate'] ?? '');
-        if ($given !== '' && hash_equals($gate, $given) && $uri === '/admin') {
+        if ($given !== '' && hash_equals($gate, $given) && $path === '/admin' && $this->request->method() === 'GET') {
             setcookie('psy_admin_gate', hash('sha256', $gate), [
                 'expires' => time() + 30 * 86400, 'path' => '/', 'samesite' => 'Lax',
                 'httponly' => true,
                 'secure' => $this->request->isSecure(),
             ]);
             header('Location: /admin/login');
+            exit;
+        }
+        if ($path === '/admin') {
+            header('Location: /admin/login', true, 302);
             exit;
         }
         http_response_code(404);

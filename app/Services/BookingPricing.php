@@ -11,7 +11,11 @@ final class BookingPricing
     {
         if ($counselorId <= 0) return [];
         return Database::fetchAll(
-            'SELECT s.id, s.name, s.slug, s.summary, s.format, s.duration, s.price_from, s.price_to, s.price_note,
+            'SELECT s.id, s.name, s.slug, s.summary, s.format, s.duration,
+                    s.price_from AS service_price_from, s.price_to AS service_price_to, s.price_note, cs.price_cents,
+                    CASE WHEN cs.price_cents>0 THEN cs.price_cents/100 ELSE s.price_from END AS price_from,
+                    CASE WHEN cs.price_cents>0 THEN cs.price_cents/100
+                         WHEN s.price_to>0 THEN s.price_to WHEN s.price_from>0 THEN s.price_from END AS price_to,
                     GROUP_CONCAT(cs.counselor_id ORDER BY cs.counselor_id) AS counselor_ids
              FROM counselor_services cs
              JOIN services s ON s.id=cs.service_id AND s.status=1
@@ -27,7 +31,10 @@ final class BookingPricing
     {
         if ($counselorId <= 0 || $serviceId <= 0) return null;
         return Database::fetch(
-            'SELECT s.id, s.name, s.price_from, s.price_to
+            'SELECT s.id, s.name, s.price_from AS service_price_from, s.price_to AS service_price_to, cs.price_cents,
+                    CASE WHEN cs.price_cents>0 THEN cs.price_cents/100 ELSE s.price_from END AS price_from,
+                    CASE WHEN cs.price_cents>0 THEN cs.price_cents/100
+                         WHEN s.price_to>0 THEN s.price_to WHEN s.price_from>0 THEN s.price_from END AS price_to
              FROM counselor_services cs
              JOIN services s ON s.id=cs.service_id AND s.status=1
              JOIN counselors c ON c.id=cs.counselor_id AND c.status=1
@@ -54,14 +61,18 @@ final class BookingPricing
         $weekday = $ts === false ? 0 : (int)date('N', $ts);
         $start5 = substr($slotLabel, 0, 5);
         $override = json_decode((string)($c['fee_override'] ?? ''), true);
+        $genericOverride = 0;
         if (is_array($override)) {
             foreach ($override as $row) {
-                if ((int)($row['weekday'] ?? 0) === $weekday && (string)($row['slot'] ?? '') === $start5) {
-                    $cents = (int)($row['price_cents'] ?? 0);
-                    if ($cents > 0) return $cents;
-                }
+                if ((int)($row['weekday'] ?? 0) !== $weekday || (string)($row['slot'] ?? '') !== $start5) continue;
+                $cents = (int)($row['price_cents'] ?? 0);
+                if ($cents <= 0) continue;
+                if ($serviceId > 0 && (int)($row['service_id'] ?? 0) === $serviceId) return $cents;
+                if ((int)($row['service_id'] ?? 0) === 0) $genericOverride = $cents;
             }
         }
+        if ($service !== null && (int)($service['price_cents'] ?? 0) > 0) return (int)$service['price_cents'];
+        if ($genericOverride > 0) return $genericOverride;
         $fee = $service !== null ? (float)($service['price_from'] ?? 0) : (float)($c['fee_from'] ?? 0);
         return $fee > 0 ? (int)round($fee * 100) : null;
     }
@@ -73,8 +84,10 @@ final class BookingPricing
         if (!$ids) return [];
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $rows = Database::fetchAll(
-            "SELECT cs.counselor_id, MIN(NULLIF(s.price_from, 0)) AS price_from,
-                    MAX(CASE WHEN s.price_to>0 THEN s.price_to WHEN s.price_from>0 THEN s.price_from END) AS price_to,
+            "SELECT cs.counselor_id,
+                    MIN(CASE WHEN cs.price_cents>0 THEN cs.price_cents/100 WHEN s.price_from>0 THEN s.price_from END) AS price_from,
+                    MAX(CASE WHEN cs.price_cents>0 THEN cs.price_cents/100
+                             WHEN s.price_to>0 THEN s.price_to WHEN s.price_from>0 THEN s.price_from END) AS price_to,
                     COUNT(*) AS service_count
              FROM counselor_services cs
              JOIN services s ON s.id=cs.service_id AND s.status=1
@@ -140,7 +153,14 @@ final class BookingPricing
     {
         if ($from === null || $from <= 0) return '收费面议';
         $text = '¥' . rtrim(rtrim(number_format($from, 2, '.', ''), '0'), '.');
-        if ($to !== null && $to > 0) $text .= '–' . rtrim(rtrim(number_format($to, 2, '.', ''), '0'), '.');
+        if ($to !== null && $to > 0 && abs($to - $from) > 0.001) $text .= '–' . rtrim(rtrim(number_format($to, 2, '.', ''), '0'), '.');
         return $text;
+    }
+
+    public static function formatCents(?int $cents): string
+    {
+        return $cents !== null && $cents > 0
+            ? '¥' . rtrim(rtrim(number_format($cents / 100, 2, '.', ''), '0'), '.')
+            : '收费面议';
     }
 }

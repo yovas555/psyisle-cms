@@ -1,4 +1,13 @@
-<?php /** 预约确认+支付页：从咨询师日历点击时段进入，时段锁定 */ ?>
+<?php
+/** 预约确认+支付页：从咨询师日历点击时段进入，时段锁定 */
+$selectedServiceName = '暂不确定';
+foreach (($services ?? []) as $summaryService) {
+    if ((int)$summaryService['id'] === (int)($preService ?? 0)) {
+        $selectedServiceName = (string)$summaryService['name'];
+        break;
+    }
+}
+?>
 <section class="section booking-page booking-confirm-page">
   <div class="container">
     <header class="booking-hero booking-confirm-hero">
@@ -45,31 +54,35 @@
             <span>已选时段</span>
             <b><?= e((string)$date) ?>（<?= e($week) ?>）</b>
             <strong><?= e($slotLabel) ?></strong>
-            <a id="changeSlotLink" href="<?= url('/booking?counselor=' . (int)$c['id'] . '&source=counselor') ?>">更换时段</a>
+            <a id="changeSlotLink" href="<?= e(url('/booking?counselor=' . (int)$c['id'] . '&source=counselor&service=' . (int)$preService . '&method=' . urlencode((string)$preMethod))) ?>">更换时段</a>
           </div>
         </section>
 
         <section class="booking-form-section">
-          <div class="booking-section-heading"><span>01</span><div><h2>确认咨询方式与服务</h2><p>仅显示该咨询师在当前时段可提供的咨询方式。</p></div></div>
+          <div class="booking-section-heading"><span>01</span><div><h2>确认咨询方式与服务</h2><p>仅显示该咨询师在当前时段、当前项目下可提供的咨询方式。</p></div></div>
           <div class="form-grid">
             <label class="field">
               <span class="label">咨询方式</span>
               <select name="method" id="methodSel">
-                <?php foreach ($slotMethods as $mode): ?>
-                <option value="<?= e($mode) ?>" <?= (string)($preMethod ?? '') === $mode ? 'selected' : '' ?>><?= e($mode) ?></option>
+                <?php foreach ($allSlotMethods as $mode): ?>
+                <?php $modeServices = []; foreach ($serviceMethods as $methodServiceId => $methodList) { if (in_array($mode, $methodList, true)) $modeServices[] = (int)$methodServiceId; } ?>
+                <option value="<?= e($mode) ?>" data-services="<?= e(implode(',', $modeServices)) ?>" <?= !in_array((int)$preService, $modeServices, true) ? 'hidden disabled' : '' ?> <?= (string)($preMethod ?? '') === $mode ? 'selected' : '' ?>><?= e($mode) ?></option>
                 <?php endforeach; ?>
               </select>
               <span class="hint" id="methodHint">视频与电话属于线上咨询，无需到访门店。</span>
             </label>
             <label class="field">
               <span class="label">服务项目</span>
-              <select name="service_id" id="serviceSel">
-                <option value="" data-price-cents="<?= (int)($genericFeeCents ?? 0) ?>">暂不确定</option>
+              <select name="service_id" id="serviceSel" required>
+                <?php if (!empty($allowServiceUndecided)): ?>
+                <option value="0" data-service-name="暂不确定" data-price-cents="<?= (int)($genericFeeCents ?? 0) ?>" <?= (int)$preService === 0 ? 'selected' : '' ?>>暂不确定 · <?= e(\app\Services\BookingPricing::formatCents($genericFeeCents ?? null)) ?></option>
+                <?php endif; ?>
                 <?php foreach ($services as $s): ?>
-                <option value="<?= (int)$s['id'] ?>" data-price-cents="<?= (int)($servicePrices[(int)$s['id']] ?? 0) ?>" <?= $preService === (int)$s['id'] ? 'selected' : '' ?>><?= e($s['name']) ?></option>
+                <?php $sFee = (int)($servicePrices[(int)$s['id']] ?? 0); ?>
+                <option value="<?= (int)$s['id'] ?>" data-service-name="<?= e($s['name']) ?>" data-price-cents="<?= $sFee ?>" <?= $preService === (int)$s['id'] ? 'selected' : '' ?>><?= e($s['name']) ?> · <?= e(\app\Services\BookingPricing::formatCents($sFee ?: null)) ?></option>
                 <?php endforeach; ?>
               </select>
-              <span class="hint">价格以所选服务为基准；机构设置的分时定价优先。</span>
+              <span class="hint">价格按当前项目与时段计算；机构设置的分时定价优先。</span>
             </label>
             <?= $formExtras ?? '' ?>
           </div>
@@ -136,6 +149,7 @@
           <dl>
             <div><dt>咨询师</dt><dd><?= e($c['name']) ?></dd></div>
             <div><dt>时间</dt><dd><?= e($slotLabel) ?></dd></div>
+            <div><dt>服务项目</dt><dd id="bookingSummaryService"><?= e($selectedServiceName) ?></dd></div>
             <div><dt>当前方式</dt><dd id="bookingSummaryMethod"><?= e($preMethod) ?></dd></div>
             <div><dt>费用</dt><dd id="bookingSummaryFee"><?= $feeCents > 0 ? '¥' . number_format($feeCents / 100, 2) : '待确认' ?></dd></div>
           </dl>
@@ -163,9 +177,25 @@
   var sel = document.getElementById('methodSel'), serviceSel = document.getElementById('serviceSel');
   var box = document.getElementById('feeBox'), amount = document.getElementById('feeAmount'), note = document.getElementById('feeNote');
   var summaryMethod = document.getElementById('bookingSummaryMethod'), summaryFee = document.getElementById('bookingSummaryFee');
+  var summaryService = document.getElementById('bookingSummaryService'), methodHint = document.getElementById('methodHint');
   var statusTitle = document.getElementById('bookingStatusTitle'), statusHint = document.getElementById('bookingStatusHint');
   var submitNote = document.getElementById('bookingSubmitNote'), changeLink = document.getElementById('changeSlotLink');
+  var changeBaseUrl = <?= json_encode(url('/booking?counselor=' . (int)$c['id'] . '&source=counselor'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  function syncMethods() {
+    if (!sel || !serviceSel) return;
+    var serviceId = serviceSel.value || '0', first = null, methods = [];
+    Array.prototype.forEach.call(sel.options, function (option) {
+      var allowed = option.getAttribute('data-services').split(',').filter(Boolean);
+      option.hidden = allowed.indexOf(serviceId) === -1;
+      option.disabled = option.hidden;
+      if (!option.disabled && first === null) first = option;
+      if (!option.disabled) methods.push(option.textContent);
+    });
+    if (!sel.value || sel.options[sel.selectedIndex].disabled) sel.value = first ? first.value : '';
+    if (methodHint) methodHint.textContent = methods.length ? '当前项目支持：' + methods.join(' / ') : '当前项目暂无可选咨询方式';
+  }
   function sync() {
+    syncMethods();
     var option = serviceSel.options[serviceSel.selectedIndex];
     var cents = option ? parseInt(option.getAttribute('data-price-cents') || '0', 10) : 0;
     var online = sel.value === '视频';
@@ -178,14 +208,15 @@
     box.classList.toggle('is-offline', !online);
     summaryMethod.textContent = sel.value;
     summaryFee.textContent = online ? price : '线下结算';
+    if (summaryService) summaryService.textContent = option ? (option.getAttribute('data-service-name') || '暂不确定') : '暂不确定';
     statusTitle.textContent = online && cents > 0 ? '付款后生效' : '提交后生效';
     statusHint.textContent = online && cents > 0
       ? '提交后进入支付页，付款成功才算正式预约。'
       : '无需在线支付，提交后预约直接生效。';
     submitNote.textContent = online && cents > 0
       ? '点击确认后将进入支付流程；付款成功后预约正式生效。'
-      : '面对面与电话咨询不在线收取费用；预约可在会员中心管理。';
-    if (changeLink) changeLink.href = '<?= url('/booking?counselor=' . (int)$c['id'] . '&source=counselor') ?>' + (serviceSel.value ? '&service=' + encodeURIComponent(serviceSel.value) : '') + '&method=' + encodeURIComponent(sel.value);
+      : (online ? '当前项目未设置线上价格，提交后由机构沟通结算。' : '面对面与电话咨询不在线收取费用；预约可在会员中心管理。');
+    if (changeLink) changeLink.href = changeBaseUrl + '&service=' + encodeURIComponent(serviceSel.value || '0') + '&method=' + encodeURIComponent(sel.value);
   }
   sel.addEventListener('change', sync); serviceSel.addEventListener('change', sync); sync();
   var ager = document.getElementById('ageRange'), g = document.getElementById('guardianRow');

@@ -1,14 +1,38 @@
-<?php /** 咨询师工作台 · 我的排班 */ ?>
+<?php
+/** 咨询师工作台 · 我的排班 */
+$slotCounselorId = (int)($me['id'] ?? 0);
+$slotColumns = array_column(\app\Core\Database::fetchAll('SHOW COLUMNS FROM counselor_slots'), 'Field');
+$slotServiceIdSelect = in_array('service_id', $slotColumns, true) ? 'service_id' : '0 AS service_id';
+$slotRows = \app\Core\Database::fetchAll(
+    "SELECT id, weekday, start_time, end_time, slot_minutes, service_mode, store_id, {$slotServiceIdSelect}
+     FROM counselor_slots WHERE counselor_id=? ORDER BY weekday, start_time, id",
+    [$slotCounselorId]
+);
+$slots = $slotRows;
+$associationColumns = array_column(\app\Core\Database::fetchAll('SHOW COLUMNS FROM counselor_services'), 'Field');
+$associationPriceSelect = in_array('price_cents', $associationColumns, true) ? 'cs.price_cents' : '0 AS price_cents';
+$slotServices = \app\Core\Database::fetchAll(
+    "SELECT s.id, s.name, {$associationPriceSelect}, s.price_from, s.price_to
+     FROM counselor_services cs JOIN services s ON s.id=cs.service_id
+     WHERE cs.counselor_id=? AND s.status=1 ORDER BY s.sort, s.id",
+    [$slotCounselorId]
+);
+$storeNames = [];
+try {
+    foreach (\app\Core\Database::fetchAll('SELECT id, name FROM stores WHERE status=1 ORDER BY sort, id') as $slotStore) {
+        $storeNames[(int)$slotStore['id']] = (string)$slotStore['name'];
+    }
+} catch (\Throwable $slotStoreError) {
+    $storeNames = [];
+}
+?>
 <div class="dash-grid">
   <div class="panel">
     <h2>每周可约时段</h2>
     <form method="post" action="/admin/counselor-home/schedule">
       <?= csrf_field() ?>
       <input type="hidden" name="act" value="slots">
-      <label class="field field-full"><span class="label">每周可约时段（每行一条）</span>
-        <textarea name="slots_text" rows="7" placeholder="6|09:00|12:00|50|all|0&#10;6|14:00|17:00|50|offline|1&#10;3|19:00|21:00|50|online|0"><?= e((string)$slotsText) ?></textarea>
-        <span class="hint">格式：星期|开始|结束|单次分钟|方式|门店ID。星期 1-7；方式 all=线上+线下、offline=仅面对面、online=仅视频/电话；门店ID 0=沿用咨询师归属门店，线上咨询自动忽略门店。保存实时生效。</span>
-      </label>
+      <?php require __DIR__ . '/../partials/counselor-slot-editor.php'; ?>
       <div class="form-actions"><button class="btn btn-primary" type="submit">保存时段</button></div>
     </form>
   </div>
@@ -51,35 +75,72 @@
 </div>
 
 <div class="panel" style="margin-top:16px">
-  <h2>💰 分时定价（按每个可约时段设置费用）</h2>
+  <h2>项目价格与分时定价</h2>
+  <p class="hint">先设置本咨询师的项目默认价；某天/某个时段需要不同价格时，再填下方项目专属分时价。留空沿用默认价，0 表示不设限制。</p>
   <form method="post" action="/admin/counselor-home/schedule">
     <?= csrf_field() ?>
     <input type="hidden" name="act" value="fee">
+    <?php if (!empty($slotServices)): ?>
+    <h3>项目默认价</h3>
     <table class="table">
-      <thead><tr><th>星期</th><th>时段</th><th>费用（元/次）</th></tr></thead>
+      <thead><tr><th>项目</th><th>全站参考价</th><th>本咨询师价格（元/次）</th></tr></thead>
+      <tbody>
+      <?php foreach ($slotServices as $service): ?>
+      <tr>
+        <td><?= e((string)$service['name']) ?></td>
+        <td><?= e(\app\Services\BookingPricing::formatRange($service['price_from'] ?? null, $service['price_to'] ?? null)) ?></td>
+        <td><input type="number" name="service_prices[<?= (int)$service['id'] ?>]" value="<?= (int)($service['price_cents'] ?? 0) > 0 ? e(number_format((int)$service['price_cents'] / 100, 2, '.', '')) : '' ?>" step="0.01" min="0" style="width:120px"></td>
+      </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+    <?php else: ?><p class="muted">尚未关联服务项目，请联系机构管理员在咨询师资料中关联。</p><?php endif; ?>
+
+    <h3 style="margin-top:18px">项目专属分时价</h3>
+    <table class="table">
+      <thead><tr><th>星期</th><th>时段</th><th>项目</th><th>分时价格（元/次）</th></tr></thead>
       <tbody>
       <?php
       $week = [1=>'周一',2=>'周二',3=>'周三',4=>'周四',5=>'周五',6=>'周六',7=>'周日'];
       $feeLookup = [];
-      foreach (($feeArr ?? []) as $f) $feeLookup[$f['weekday'] . '_' . $f['slot']] = $f['price_cents'] ?? 0;
-      foreach (($slots ?? []) as $s):
-        $feeKey = $s['weekday'] . '_' . substr((string)$s['start_time'], 0, 5);
-        $feeVal = isset($feeLookup[$feeKey]) ? round($feeLookup[$feeKey] / 100, 2) : '';
+      foreach (($feeArr ?? []) as $f) {
+          $feeLookup[(int)($f['weekday'] ?? 0) . '|' . (string)($f['slot'] ?? '') . '|' . (int)($f['service_id'] ?? 0)] = (int)($f['price_cents'] ?? 0);
+      }
+      $serviceNames = [0 => '通用（未选项目）'];
+      foreach ($slotServices as $service) $serviceNames[(int)$service['id']] = (string)$service['name'];
+      $feeOffers = [];
+      $feeSeen = [];
+      foreach ($slots as $slot) {
+          $slotServiceId = (int)($slot['service_id'] ?? 0);
+          $offerIds = $slotServiceId > 0 ? [$slotServiceId] : array_keys($serviceNames);
+          foreach ($offerIds as $offerId) {
+              $key = (int)$slot['weekday'] . '|' . substr((string)$slot['start_time'], 0, 5) . '|' . (int)$offerId;
+              if (isset($feeSeen[$key])) continue;
+              $feeSeen[$key] = true;
+              $feeOffers[] = $slot + ['offer_service_id' => (int)$offerId, 'fee_key' => $key];
+          }
+      }
+      foreach ($feeOffers as $offerIndex => $offer):
+          $feeCents = $feeLookup[$offer['fee_key']] ?? 0;
       ?>
       <tr>
-        <td><?= e($week[$s['weekday']] ?? '') ?></td>
-        <td><?= e(substr((string)$s['start_time'],0,5)) ?> - <?= e(substr((string)$s['end_time'],0,5)) ?></td>
-        <td><input type="number" name="fee_<?= (int)$s['weekday'] ?>_<?= e(substr((string)$s['start_time'],0,5)) ?>" value="<?= $feeVal ?>" step="0.01" min="0" style="width:100px"></td>
+        <td><?= e($week[(int)$offer['weekday']] ?? '') ?></td>
+        <td><?= e(substr((string)$offer['start_time'],0,5)) ?> - <?= e(substr((string)$offer['end_time'],0,5)) ?></td>
+        <td>
+          <?= e($serviceNames[$offer['offer_service_id']] ?? '项目待定') ?>
+          <input type="hidden" name="fee_overrides[<?= $offerIndex ?>][weekday]" value="<?= (int)$offer['weekday'] ?>">
+          <input type="hidden" name="fee_overrides[<?= $offerIndex ?>][slot]" value="<?= e(substr((string)$offer['start_time'],0,5)) ?>">
+          <input type="hidden" name="fee_overrides[<?= $offerIndex ?>][service_id]" value="<?= (int)$offer['offer_service_id'] ?>">
+        </td>
+        <td><input type="number" name="fee_overrides[<?= $offerIndex ?>][price]" value="<?= $feeCents > 0 ? e(number_format($feeCents / 100, 2, '.', '')) : '' ?>" step="0.01" min="0" style="width:120px"></td>
       </tr>
       <?php endforeach; ?>
-      <?php if (empty($slots)): ?><tr><td colspan="3" class="empty">请在上方先设置可约时段</td></tr><?php endif; ?>
+      <?php if (empty($feeOffers)): ?><tr><td colspan="4" class="empty">请在上方先设置可约时段</td></tr><?php endif; ?>
       </tbody>
     </table>
-    <?php if (!empty($slots)): ?>
-    <button class="btn btn-primary" type="submit">保存分时定价</button>
-    <?php endif; ?>
+    <?php if (!empty($slots) || !empty($slotServices)): ?><button class="btn btn-primary" type="submit">保存价格</button><?php endif; ?>
   </form>
-  <p class="hint">预约时按所选时段的费用自动定价（视频咨询在线支付；面对面可线下）。</p>
+  <p class="hint">优先级：项目专属分时价 → 本咨询师项目默认价 → 通用分时价 → 全站服务价。未选项目时才使用咨询师通用收费。</p>
 </div>
 
 <div class="panel" style="margin-top:16px">

@@ -175,7 +175,7 @@ $feeText = \app\Services\BookingPricing::formatRange($priceRange['from'] ?? null
       <?php endif; ?>
       <div class="calendar-strip">
         <?php foreach ($calendar as $day): ?>
-        <div class="cal-day">
+        <div class="cal-day" style="width:220px;min-width:180px;max-width:70vw">
           <b><?= e($day['md']) ?></b>
           <span class="muted"><?= e($day['week']) ?></span>
           <?php if ($day['closed_note'] !== null): ?>
@@ -184,10 +184,26 @@ $feeText = \app\Services\BookingPricing::formatRange($priceRange['from'] ?? null
             <span class="chip">请假</span>
           <?php else: ?>
             <?php foreach ($day['slots'] as $t): ?>
+              <?php
+                $slotServiceName = (string)($t['service_name'] ?? '项目待定');
+                $slotPriceText = (string)($t['price_text'] ?? \app\Services\BookingPricing::formatCents($t['price_cents'] ?? null));
+                $slotChipText = $t['label'] . ' · ' . $slotServiceName . ' · ' . $slotPriceText;
+                $slotMethod = '';
+                if (($t['service_mode'] ?? 'all') === 'offline') {
+                    $slotMethod = '面对面';
+                } elseif (($t['service_mode'] ?? 'all') === 'online') {
+                    foreach (['视频', '电话'] as $onlineMethod) {
+                        if (in_array($onlineMethod, $serviceModes ?: \app\Services\CounselorProfile::MODES, true)) {
+                            $slotMethod = $onlineMethod;
+                            break;
+                        }
+                    }
+                }
+              ?>
               <?php if ($t['available']): ?>
-              <a class="chip chip-link" href="<?= url('/booking/confirm?counselor=' . (int)$c['id'] . '&date=' . $day['ymd'] . '&start=' . urlencode($t['start'])) ?>" title="点击预约"><?= e($t['label']) ?></a>
+              <a class="chip chip-link" style="max-width:100%;box-sizing:border-box;white-space:normal;overflow-wrap:anywhere;text-align:left" href="<?= e(url('/booking/confirm?counselor=' . (int)$c['id'] . '&date=' . $day['ymd'] . '&start=' . urlencode($t['start']) . '&service=' . (int)($t['service_id'] ?? 0) . ($slotMethod !== '' ? '&method=' . urlencode($slotMethod) : ''))) ?>" title="预约：<?= e($slotChipText) ?>"><?= e($slotChipText) ?></a>
               <?php else: ?>
-              <span class="chip is-taken" title="该时段已被约"><?= e($t['label']) ?></span>
+              <span class="chip is-taken" style="max-width:100%;box-sizing:border-box;white-space:normal;overflow-wrap:anywhere;text-align:left" title="该时段已被约：<?= e($slotChipText) ?>"><?= e($slotChipText) ?></span>
               <?php endif; ?>
             <?php endforeach; ?>
             <?php if (!$day['slots']): ?><span class="muted">无可约</span><?php endif; ?>
@@ -204,15 +220,23 @@ $feeText = \app\Services\BookingPricing::formatRange($priceRange['from'] ?? null
     <?php if ($slots): ?>
     <section class="cp-section">
       <h2>每周固定时段</h2>
-      <table class="table">
-        <thead><tr><th>星期</th><th>时段</th></tr></thead>
-        <tbody>
-        <?php $week = [1=>'周一',2=>'周二',3=>'周三',4=>'周四',5=>'周五',6=>'周六',7=>'周日'];
-        foreach ($slots as $s): ?>
-          <tr><td><?= e($week[$s['weekday']] ?? '') ?></td><td><?= e(substr((string)$s['start_time'],0,5)) ?> - <?= e(substr((string)$s['end_time'],0,5)) ?></td></tr>
-        <?php endforeach; ?>
-        </tbody>
-      </table>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table class="table">
+          <thead><tr><th>星期</th><th>时段</th><th>咨询项目</th></tr></thead>
+          <tbody>
+          <?php $week = [1=>'周一',2=>'周二',3=>'周三',4=>'周四',5=>'周五',6=>'周六',7=>'周日'];
+          foreach ($slots as $s): ?>
+            <?php
+              $fixedServiceId = (int)($s['service_id'] ?? 0);
+              $fixedServiceName = $fixedServiceId > 0
+                  ? (string)($s['service_name'] ?? '项目已停用')
+                  : ($services ? '全部已关联项目' : '项目待定');
+            ?>
+            <tr><td><?= e($week[$s['weekday']] ?? '') ?></td><td><?= e(substr((string)$s['start_time'],0,5)) ?> - <?= e(substr((string)$s['end_time'],0,5)) ?></td><td><?= e($fixedServiceName) ?></td></tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
       <p class="muted">实际时间以确认回复为准。</p>
     </section>
     <?php endif; ?>

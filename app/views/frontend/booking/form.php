@@ -66,7 +66,7 @@
                 <option value="<?= (int)$s['id'] ?>" data-price="<?= e(\app\Services\BookingPricing::formatRange((float)($s['price_from'] ?? 0) ?: null, (float)($s['price_to'] ?? 0) ?: null)) ?>" <?= $preService === (int)$s['id'] ? 'selected' : '' ?>><?= e($s['name']) ?></option>
                 <?php endforeach; ?>
               </select>
-              <span class="hint" id="serviceHint">仅可选择该咨询师实际提供的服务；分时定价优先于服务标价</span>
+              <span class="hint" id="serviceHint">仅可选择该咨询师实际提供的服务；选择项目后，时段与价格均按该项目显示</span>
             </label>
             <label class="field">
               <span class="label">指定咨询师</span>

@@ -162,6 +162,7 @@ CREATE TABLE `counselor_slots` (
   `slot_minutes` smallint unsigned NOT NULL DEFAULT 50,
   `service_mode` varchar(16) NOT NULL DEFAULT 'all' COMMENT 'all/offline/online',
   `store_id` int unsigned NOT NULL DEFAULT 0 COMMENT '0=沿用咨询师归属门店',
+  `service_id` int unsigned NOT NULL DEFAULT 0 COMMENT '0=全部已关联项目',
   `status` tinyint(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`), KEY `idx_counselor` (`counselor_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -198,6 +199,7 @@ CREATE TABLE `booking_paid_notifications` (
 CREATE TABLE `counselor_services` (
   `counselor_id` int unsigned NOT NULL,
   `service_id` int unsigned NOT NULL,
+  `price_cents` int unsigned NULL DEFAULT NULL COMMENT '咨询师项目默认价；空=使用全站服务价',
   `created_at` datetime NULL,
   PRIMARY KEY (`counselor_id`,`service_id`),
   KEY `idx_service_counselor` (`service_id`,`counselor_id`)

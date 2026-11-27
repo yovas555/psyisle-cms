@@ -9,14 +9,35 @@ $cats = null;
 if (isset($fields['category_id']) && $fields['category_id'][1] === 'category_select') {
     $cats = app\Core\Database::fetchAll("SELECT id, name, type FROM categories WHERE status=1 AND type IN ('article','news') ORDER BY type, sort");
 }
-$slotsText = '';
-if ($isEdit && $baseSeg === 'counselors') {
-    $rows = app\Core\Database::fetchAll('SELECT weekday, start_time, end_time, slot_minutes FROM counselor_slots WHERE counselor_id=? ORDER BY weekday', [$row['id']]);
-    $lines = [];
-    foreach ($rows as $s) {
-        $lines[] = $s['weekday'] . '|' . substr((string)$s['start_time'], 0, 5) . '|' . substr((string)$s['end_time'], 0, 5) . '|' . (int)($s['slot_minutes'] ?: 50);
+$slotRows = [];
+$slotServices = [];
+$storeNames = [];
+if ($baseSeg === 'counselors') {
+    $slotCounselorId = $isEdit ? (int)$row['id'] : 0;
+    $slotColumns = array_column(app\Core\Database::fetchAll('SHOW COLUMNS FROM counselor_slots'), 'Field');
+    $slotServiceIdSelect = in_array('service_id', $slotColumns, true) ? 'service_id' : '0 AS service_id';
+    if ($isEdit) {
+        $slotRows = app\Core\Database::fetchAll(
+            "SELECT id, weekday, start_time, end_time, slot_minutes, service_mode, store_id, {$slotServiceIdSelect}
+             FROM counselor_slots WHERE counselor_id=? ORDER BY weekday, start_time, id",
+            [$slotCounselorId]
+        );
     }
-    $slotsText = implode("\n", $lines);
+    $associationColumns = array_column(app\Core\Database::fetchAll('SHOW COLUMNS FROM counselor_services'), 'Field');
+    $associationPriceSelect = in_array('price_cents', $associationColumns, true) ? 'COALESCE(cs.price_cents, 0)' : '0';
+    $slotServices = app\Core\Database::fetchAll(
+        "SELECT s.id, s.name, {$associationPriceSelect} AS price_cents, s.price_from, s.price_to
+         FROM services s LEFT JOIN counselor_services cs ON cs.service_id=s.id AND cs.counselor_id=?
+         WHERE s.status=1 ORDER BY s.sort, s.id",
+        [$slotCounselorId]
+    );
+    try {
+        foreach (app\Core\Database::fetchAll('SELECT id, name FROM stores WHERE status=1 ORDER BY sort, id') as $slotStore) {
+            $storeNames[(int)$slotStore['id']] = (string)$slotStore['name'];
+        }
+    } catch (\Throwable $slotStoreError) {
+        $storeNames = [];
+    }
 }
 ?>
 <form class="form card" method="post" action="<?= e($action) ?>" enctype="multipart/form-data">
@@ -56,14 +77,21 @@ if ($isEdit && $baseSeg === 'counselors') {
           $selectedServiceIds = array_map('intval', array_column(\app\Core\Database::fetchAll('SELECT service_id FROM counselor_services WHERE counselor_id=?', [(int)$row['id']]), 'service_id'));
       }
       $serviceOptions = \app\Core\Database::fetchAll('SELECT id, name, price_from, price_to, status FROM services ORDER BY sort, id');
+      $servicePriceMap = [];
+      foreach (($slotServices ?? []) as $slotService) $servicePriceMap[(int)$slotService['id']] = (int)($slotService['price_cents'] ?? 0);
     ?>
     <fieldset class="field field-full mode-picker">
       <legend class="label"><?= e($label) ?></legend>
       <div class="chip-row">
         <?php foreach ($serviceOptions as $service): ?>
-        <label class="mode-option"><input type="checkbox" name="<?= e($name) ?>[]" value="<?= (int)$service['id'] ?>" <?= in_array((int)$service['id'], $selectedServiceIds, true) ? 'checked' : '' ?>><?= e($service['name']) ?><?= $service['status'] ? '' : '（已停用）' ?></label>
+        <?php $servicePriceCents = (int)($servicePriceMap[(int)$service['id']] ?? 0); ?>
+        <div class="mode-option">
+          <label><input type="checkbox" name="<?= e($name) ?>[]" value="<?= (int)$service['id'] ?>" <?= in_array((int)$service['id'], $selectedServiceIds, true) ? 'checked' : '' ?>><?= e($service['name']) ?><?= $service['status'] ? '' : '（已停用）' ?></label>
+          <label style="display:flex;gap:6px;align-items:center;margin-top:4px"><span class="muted">本咨询师价</span><input type="number" name="service_prices[<?= (int)$service['id'] ?>]" value="<?= $servicePriceCents > 0 ? e(number_format($servicePriceCents / 100, 2, '.', '')) : '' ?>" min="0" step="0.01" style="width:100px" aria-label="<?= e($service['name']) ?>本咨询师价格"></label>
+        </div>
         <?php endforeach; ?>
       </div>
+      <span class="hint">项目价格留空时使用全站服务价；填写后仅对该咨询师生效。项目专属分时价仍优先。</span>
       <?php if (!empty($attrs['hint'])): ?><span class="hint"><?= e($attrs['hint']) ?></span><?php endif; ?>
     </fieldset>
     <?php elseif ($type === 'mode_multi'): ?>
@@ -189,11 +217,7 @@ if ($isEdit && $baseSeg === 'counselors') {
 
   <?php if ($baseSeg === 'counselors'): ?>
   <input type="hidden" name="_counselor_form" value="1">
-  <label class="field field-full">
-    <span class="label">可预约时段（每行一条：星期|开始|结束[|单次分钟|方式|门店ID]，星期 1-7 周一至周日）</span>
-    <textarea name="slots_text" rows="5" placeholder="6|09:00|12:00|50|all|0&#10;6|14:00|17:00|50|offline|1&#10;3|19:00|21:00|50|online|0"><?= e($slotsText) ?></textarea>
-    <span class="hint">方式 all=线上+线下、offline=仅面对面、online=仅视频/电话；门店ID 0=沿用咨询师归属门店，线上自动忽略门店。单次分钟默认 50，范围 10-240；留空表示不展示时段表。</span>
-  </label>
+  <?php require __DIR__ . '/../partials/counselor-slot-editor.php'; ?>
   <?php endif; ?>
   <?php /* v2.8.0 插件扩展点：stores-pro 注入门店选择等额外字段 */
     $formExtras = \app\Core\Hook::fire('admin.form.extras', ['baseSeg' => $baseSeg, 'row' => $row, 'html' => ''])['html'] ?? '';

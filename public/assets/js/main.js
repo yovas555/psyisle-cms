@@ -81,16 +81,17 @@
       var counselor = counselorSel.options[counselorSel.selectedIndex];
       var allowed = counselor && counselor.hasAttribute('data-services')
         ? counselor.getAttribute('data-services').split(',').filter(Boolean) : null;
-      var previous = serviceSel.value;
+      var previous = serviceSel.value, previousOption = null;
       Array.prototype.forEach.call(serviceSel.options, function (option) {
         option.hidden = !!allowed && option.value !== '' && allowed.indexOf(option.value) === -1;
         option.disabled = option.hidden;
+        if (option.value === previous) previousOption = option;
       });
-      if (previous && serviceSel.querySelector('option[value="' + previous + '"]').disabled) serviceSel.value = '';
+      if (previous && previousOption && previousOption.disabled) serviceSel.value = '';
       var selected = serviceSel.options[serviceSel.selectedIndex];
       if (serviceHint) serviceHint.textContent = allowed && allowed.length === 0
         ? '该咨询师尚未关联服务，请选择其他咨询师或提交后由机构协助安排。'
-        : (selected && selected.value ? '服务标价：' + selected.getAttribute('data-price') + '；分时定价优先。' : '仅可选择该咨询师实际提供的服务；分时定价优先于服务标价');
+        : (selected && selected.value ? '服务标价：' + selected.getAttribute('data-price') + '；时段与价格均按该项目显示。' : '仅可选择该咨询师实际提供的服务；未选项目时显示各项目自己的时段价格。');
     }
     function syncMethods() {
       if (!counselorSel || !methodSel) return;
@@ -118,53 +119,102 @@
     syncSummary();
   }
 
-  // 预约时段选择器：选了咨询师+日期后拉取可约时段
+  // 预约时段选择器：选了咨询师+日期后拉取可约时段；项目切换只复用同一批真实槽位。
   var slotPicker = document.getElementById('slotPicker');
   if (slotPicker) {
-    var cSel = slotPicker.closest('form').querySelector('select[name=counselor_id]');
-    var dInp = slotPicker.closest('form').querySelector('input[name=prefer_date]');
+    var slotForm = slotPicker.closest('form');
+    var cSel = slotForm.querySelector('select[name=counselor_id]');
+    var dInp = slotForm.querySelector('input[name=prefer_date]');
+    var methodSlotSel = slotForm.querySelector('select[name=method]');
+    var serviceSlotSel = slotForm.querySelector('select[name=service_id]');
     var slotChips = document.getElementById('slotChips');
     var slotHint = document.getElementById('slotHint');
-    var slotRequest = 0;
+    var slotRequest = 0, slotData = null, slotContext = '';
+    function currentSlotContext() {
+      return [cSel ? cSel.value : '', dInp ? dInp.value : '', methodSlotSel ? methodSlotSel.value : ''].join('|');
+    }
+    function slotPriceText(slot) {
+      if (slot.price_text) return String(slot.price_text);
+      var cents = parseInt(slot.price_cents, 10);
+      if (cents > 0) return '¥' + (cents / 100).toFixed(2).replace(/\.?0+$/, '');
+      return '收费面议';
+    }
+    function renderSlots() {
+      var context = currentSlotContext();
+      if (!slotData || slotContext !== context) { fetchSlots(); return; }
+      var cid = cSel ? cSel.value : '';
+      var date = dInp ? dInp.value : '';
+      var method = methodSlotSel ? methodSlotSel.value : '';
+      var serviceId = serviceSlotSel ? serviceSlotSel.value : '';
+      var allAvailable = (slotData.slots_full || []).filter(function (s) { return s.available; });
+      var availableSlots = allAvailable.filter(function (s) {
+        return serviceId === '' || String(s.service_id == null ? 0 : s.service_id) === serviceId;
+      });
+      slotPicker.hidden = false;
+      slotChips.innerHTML = '';
+      if (!slotData.ok || !allAvailable.length) {
+        slotHint.textContent = slotData.closed_note || slotData.msg || '该咨询师这一天暂无可约时段，可换一天或用文字填写期望时间。';
+        return;
+      }
+      if (!availableSlots.length) {
+        slotHint.textContent = '该咨询师这一天暂无所选项目的可约时段，可更换项目、日期或用文字填写期望时间。';
+        return;
+      }
+      slotHint.textContent = '点击具体项目时段进入锁定预约；价格对应该项目，已约满时段不会显示。';
+      availableSlots.forEach(function (s) {
+        var ownServiceId = s.service_id == null ? 0 : s.service_id;
+        var serviceName = s.service_name || (Number(ownServiceId) > 0 ? '咨询项目' : '项目待定');
+        var chipText = s.label + ' · ' + serviceName + ' · ' + slotPriceText(s);
+        var href = slotData.confirm_url + '?counselor=' + encodeURIComponent(cid) + '&date=' + encodeURIComponent(date) + '&start=' + encodeURIComponent(s.start);
+        href += '&service=' + encodeURIComponent(String(ownServiceId)) + '&method=' + encodeURIComponent(method);
+        var a = document.createElement('a');
+        a.className = 'chip chip-link';
+        a.href = href;
+        a.style.maxWidth = '100%';
+        a.style.boxSizing = 'border-box';
+        a.style.whiteSpace = 'normal';
+        a.style.overflowWrap = 'anywhere';
+        a.style.textAlign = 'left';
+        a.textContent = chipText;
+        a.title = '预约：' + chipText;
+        slotChips.appendChild(a);
+      });
+    }
     function fetchSlots() {
       var requestId = ++slotRequest;
       var cid = cSel ? cSel.value : '';
       var date = dInp ? dInp.value : '';
-      var form = slotPicker.closest('form');
-      var methodSel = form.querySelector('select[name=method]');
-      var method = methodSel ? methodSel.value : '';
-      if (!cid || !date || !method) { slotPicker.hidden = true; return; }
+      var method = methodSlotSel ? methodSlotSel.value : '';
+      var context = currentSlotContext();
+      if (!cid || !date || !method) {
+        slotData = null;
+        slotContext = '';
+        slotPicker.hidden = true;
+        slotChips.innerHTML = '';
+        slotHint.textContent = '';
+        return;
+      }
+      slotPicker.hidden = true;
+      slotChips.innerHTML = '';
       fetch(SITE_BASE + '/booking/slots?counselor_id=' + encodeURIComponent(cid) + '&date=' + encodeURIComponent(date) + '&method=' + encodeURIComponent(method), { credentials: 'same-origin' })
         .then(function (r) { return r.json(); })
         .then(function (d) {
           if (requestId !== slotRequest) return;
-          slotPicker.hidden = false;
-          slotChips.innerHTML = '';
-          var availableSlots = (d.slots_full || []).filter(function (s) { return s.available; });
-          if (!d.ok || !availableSlots.length) {
-            slotHint.textContent = d.closed_note || d.msg || '该咨询师这一天暂无可约时段，可换一天或用文字填写期望时间。';
-            return;
+          slotData = d;
+          slotContext = context;
+          renderSlots();
+        }).catch(function () {
+          if (requestId === slotRequest) {
+            slotData = null;
+            slotPicker.hidden = true;
+            slotChips.innerHTML = '';
           }
-          var service = form.querySelector('select[name=service_id]');
-          slotHint.textContent = '点击具体时段进入锁定预约；已约满时段不会显示。';
-          availableSlots.forEach(function (s) {
-            var href = d.confirm_url + '?counselor=' + encodeURIComponent(cid) + '&date=' + encodeURIComponent(date) + '&start=' + encodeURIComponent(s.start);
-            if (service && service.value) href += '&service=' + encodeURIComponent(service.value);
-            href += '&method=' + encodeURIComponent(method);
-            var a = document.createElement('a');
-            a.className = 'chip';
-            a.href = href;
-            a.textContent = s.label;
-            slotChips.appendChild(a);
-          });
-        }).catch(function () { if (requestId === slotRequest) slotPicker.hidden = true; });
+        });
     }
     if (cSel) cSel.addEventListener('change', fetchSlots);
     if (dInp) dInp.addEventListener('change', fetchSlots);
-    var methodSlotSel = slotPicker.closest('form').querySelector('select[name=method]');
     if (methodSlotSel) methodSlotSel.addEventListener('change', fetchSlots);
-    var serviceSlotSel = slotPicker.closest('form').querySelector('select[name=service_id]');
-    if (serviceSlotSel) serviceSlotSel.addEventListener('change', fetchSlots);
+    if (serviceSlotSel) serviceSlotSel.addEventListener('change', renderSlots);
     fetchSlots();
   }
 

@@ -8,6 +8,7 @@ use app\Core\Database;
 use app\Core\Request;
 use app\Core\Uploader;
 use app\Services\CounselorProfile;
+use app\Services\BookingSlots;
 
 class Counselor extends Base
 {
@@ -19,6 +20,9 @@ class Counselor extends Base
     protected array $searchFields = ['name', 'specialties'];
     protected string $toggleCol = 'status';
     private array $serviceIds = [];
+    private array $servicePrices = [];
+    private ?array $slotRows = null;
+    private string $relationError = '';
     protected array $columns = [
         'name' => ['姓名', 'text'],
         'title' => ['头衔', 'text'],
@@ -62,6 +66,53 @@ class Counselor extends Base
         'seo_description' => ['SEO 描述', 'textarea', ['rows' => 2]],
     ];
 
+    public function store(Request $req, array $p): void
+    {
+        Csrf::guard();
+        $data = $this->collect($req);
+        $this->beforeSave($data, null, 'create');
+        if (self::hasCol($this->table, 'created_at')) $data['created_at'] = date('Y-m-d H:i:s');
+        try {
+            $id = Database::transaction(function () use ($data): int {
+                $id = (int)Database::insert($this->table, $data);
+                $this->afterSave($data, $id, 'create');
+                return $id;
+            });
+        } catch (\Throwable $t) {
+            \app\Core\Session::flash('error', '保存失败：' . $t->getMessage());
+            \app\Core\ResponseRedirect('/admin/' . $this->baseSeg);
+        }
+        $this->finishSave($id, $data, $req, 'create');
+    }
+
+    public function update(Request $req, array $p): void
+    {
+        Csrf::guard();
+        $id = (int)$p['id'];
+        $data = $this->collect($req);
+        $this->beforeSave($data, $id, 'update');
+        if (self::hasCol($this->table, 'updated_at')) $data['updated_at'] = date('Y-m-d H:i:s');
+        try {
+            Database::transaction(function () use ($data, $id): void {
+                Database::update($this->table, $data, 'id=?', [$id]);
+                $this->afterSave($data, $id, 'update');
+            });
+        } catch (\Throwable $t) {
+            \app\Core\Session::flash('error', '保存失败：' . $t->getMessage());
+            \app\Core\ResponseRedirect('/admin/' . $this->baseSeg);
+        }
+        $this->finishSave($id, $data, $req, 'update');
+    }
+
+    private function finishSave(int $id, array $data, Request $req, string $mode): void
+    {
+        \app\Core\Hook::fire('admin.form.saved', ['baseSeg' => $this->baseSeg, 'id' => $id, 'req' => $req, 'data' => $data]);
+        $this->audit($this->shortName() . '.' . ($mode === 'create' ? 'create' : 'update'), $this->table, $id, ['title' => $data['title'] ?? ($data['name'] ?? '')]);
+        \app\Core\Session::flash('success', $mode === 'create' ? '已创建' : '已保存');
+        if (!empty($_POST['_stay'])) \app\Core\ResponseRedirect('/admin/' . $this->baseSeg . '/' . $id . '/edit');
+        \app\Core\ResponseRedirect('/admin/' . $this->baseSeg);
+    }
+
     public function avatarUpload(Request $req, array $p): void
     {
         Csrf::guard();
@@ -79,6 +130,25 @@ class Counselor extends Base
 
     protected function beforeSave(array &$data, ?int $id, string $mode): void
     {
+        if ((string)($_POST['_counselor_form'] ?? '') === '1') {
+            if ($this->relationError !== '') {
+                \app\Core\Session::flash('error', $this->relationError . '；本次资料、项目与排班均未修改');
+                \app\Core\ResponseRedirect('/admin/counselors' . ($id ? '/' . $id . '/edit' : '/create'));
+            }
+            $validIds = array_map('intval', array_column(Database::fetchAll('SELECT id FROM services WHERE status=1'), 'id'));
+            $this->serviceIds = array_values(array_intersect(array_unique($this->serviceIds), $validIds));
+            if ($this->slotRows !== null) {
+                [$rows, $error] = BookingSlots::validateSlotRows($this->slotRows, (int)($id ?? 0), $this->serviceIds);
+                if ($error !== '') {
+                    \app\Core\Session::flash('error', $error . '；本次资料、项目与排班均未修改');
+                    \app\Core\ResponseRedirect('/admin/counselors' . ($id ? '/' . $id . '/edit' : '/create'));
+                }
+                $this->slotRows = $rows;
+            }
+            foreach ($this->servicePrices as $serviceId => $cents) {
+                if (!in_array($serviceId, $this->serviceIds, true)) unset($this->servicePrices[$serviceId]);
+            }
+        }
         $uid = (int)($data['user_id'] ?? 0);
         if ($uid > 0) {
             $dup = Database::fetch('SELECT id FROM counselors WHERE user_id=? AND id<>?', [$uid, (int)($id ?? 0)]);
@@ -101,46 +171,25 @@ class Counselor extends Base
 
     protected function afterSave(array $data, int $id, string $mode): void
     {
-        if ((string)($_POST['_counselor_form'] ?? '') !== '1') {
-            parent::afterSave($data, $id, $mode);
-            return;
-        }
-        Database::transaction(function () use ($id): void {
+        if ((string)($_POST['_counselor_form'] ?? '') === '1') {
             Database::delete('counselor_services', 'counselor_id=?', [$id]);
-            $services = Database::fetchAll('SELECT id FROM services WHERE status=1');
-            $validIds = array_map('intval', array_column($services, 'id'));
-            foreach (array_unique($this->serviceIds) as $serviceId) {
-                if (!in_array($serviceId, $validIds, true)) continue;
+            foreach ($this->serviceIds as $serviceId) {
                 Database::insert('counselor_services', [
-                    'counselor_id' => $id, 'service_id' => $serviceId, 'created_at' => date('Y-m-d H:i:s'),
+                    'counselor_id' => $id, 'service_id' => $serviceId,
+                    'price_cents' => $this->servicePrices[$serviceId] ?? null,
+                    'created_at' => date('Y-m-d H:i:s'),
                 ]);
             }
-            if (array_key_exists('slots_text', $_POST)) {
-                $slots = (string)$_POST['slots_text'];
+            if ($this->slotRows !== null) {
                 Database::delete('counselor_slots', 'counselor_id=?', [$id]);
-                foreach (preg_split('/[\r\n]+/', trim($slots)) as $line) {
-                    $line = trim($line);
-                    if ($line === '') continue;
-                    $parts = array_map('trim', explode('|', $line));
-                    if (count($parts) < 3 || !isset($parts[0], $parts[1], $parts[2])) continue;
-                    [$wd, $st, $et] = $parts;
-                    if (!isset($wd[0]) || (int)$wd < 1 || (int)$wd > 7) continue;
-                    $slotMin = (int)($parts[3] ?? 50);
-                    if ($slotMin < 10 || $slotMin > 240) $slotMin = 50;
-                    $slotMode = (string)($parts[4] ?? 'all');
-                    if (!in_array($slotMode, ['all', 'offline', 'online'], true)) $slotMode = 'all';
-                    $slotStoreId = (int)($parts[5] ?? 0);
-                    if ($slotMode === 'online') $slotStoreId = 0;
-                    if (!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $st) || !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $et)) continue;
-                    Database::insert('counselor_slots', [
-                        'counselor_id' => $id, 'weekday' => (int)$wd,
-                        'start_time' => $st . ':00', 'end_time' => $et . ':00',
-                        'slot_minutes' => $slotMin, 'service_mode' => $slotMode,
-                        'store_id' => $slotStoreId, 'status' => 1,
-                    ]);
+                foreach ($this->slotRows as $row) {
+                    $row['counselor_id'] = $id;
+                    $row['start_time'] .= ':00';
+                    $row['end_time'] .= ':00';
+                    Database::insert('counselor_slots', $row);
                 }
             }
-        });
+        }
         parent::afterSave($data, $id, $mode);
     }
 
@@ -157,9 +206,29 @@ class Counselor extends Base
     {
         $data = parent::collect($req);
         $this->serviceIds = [];
+        $this->servicePrices = [];
+        $this->slotRows = null;
+        $this->relationError = '';
         foreach ((array)$req->post('service_ids', []) as $serviceId) {
             $serviceId = (int)$serviceId;
             if ($serviceId > 0) $this->serviceIds[] = $serviceId;
+        }
+        foreach ((array)$req->post('service_prices', []) as $serviceId => $price) {
+            $serviceId = (int)$serviceId;
+            $price = trim((string)$price);
+            if ($serviceId <= 0 || $price === '') continue;
+            if (!is_numeric($price) || (float)$price < 0 || (float)$price > 1000000) {
+                $this->relationError = '项目价格须为 0–1,000,000 之间的数字';
+                continue;
+            }
+            $cents = (int)round((float)$price * 100);
+            if ($cents > 0) $this->servicePrices[$serviceId] = $cents;
+        }
+        if (array_key_exists('slots', $_POST)) {
+            if (is_array($_POST['slots'])) $this->slotRows = array_values($_POST['slots']);
+            else $this->relationError = '排班数据格式不正确';
+        } elseif (array_key_exists('slots_text', $_POST)) {
+            [$this->slotRows, $this->relationError] = BookingSlots::parseSlotText((string)$_POST['slots_text']);
         }
         unset($data['service_ids']);
         $data['gender'] = in_array($req->post('gender', ''), ['1','2'], true) ? (int)$req->post('gender') : null;

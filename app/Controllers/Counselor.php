@@ -30,8 +30,10 @@ class Counselor
         $page = max(1, (int)self::queryValue($req, 'page', '1'));
 
         self::$hasModesColumn = in_array('service_modes', array_column(Database::fetchAll('SHOW COLUMNS FROM counselors'), 'Field'), true);
-        $priceJoin = " LEFT JOIN (SELECT cs.counselor_id, MIN(NULLIF(s.price_from,0)) AS price_from,
-            MAX(CASE WHEN s.price_to>0 THEN s.price_to WHEN s.price_from>0 THEN s.price_from END) AS price_to,
+        $priceJoin = " LEFT JOIN (SELECT cs.counselor_id,
+            MIN(CASE WHEN cs.price_cents>0 THEN cs.price_cents/100 WHEN s.price_from>0 THEN s.price_from END) AS price_from,
+            MAX(CASE WHEN cs.price_cents>0 THEN cs.price_cents/100
+                     WHEN s.price_to>0 THEN s.price_to WHEN s.price_from>0 THEN s.price_from END) AS price_to,
             COUNT(*) AS service_count FROM counselor_services cs JOIN services s ON s.id=cs.service_id AND s.status=1
             GROUP BY cs.counselor_id) cp ON cp.counselor_id=c.id";
         $feeFrom = 'CASE WHEN cp.service_count>0 THEN cp.price_from ELSE c.fee_from END';
@@ -124,7 +126,9 @@ class Counselor
         $c = Database::fetch('SELECT * FROM counselors WHERE slug=? AND status=1', [$p['slug']]);
         if (!$c) { \app\Controllers\StaticPage::notFound($req, []); return; }
         $slots = Database::fetchAll(
-            'SELECT weekday, start_time, end_time FROM counselor_slots WHERE counselor_id=? AND status=1 ORDER BY weekday, start_time',
+            'SELECT ws.weekday, ws.start_time, ws.end_time, ws.service_id, s.name AS service_name
+             FROM counselor_slots ws LEFT JOIN services s ON s.id=ws.service_id AND s.status=1
+             WHERE ws.counselor_id=? AND ws.status=1 ORDER BY ws.weekday, ws.start_time',
             [$c['id']]
         );
         $calendar = BookingSlots::days((int)$c['id'], 14, 1, true);

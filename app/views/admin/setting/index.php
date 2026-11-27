@@ -245,7 +245,7 @@
         <label class="field"><span class="label">升级检查地址</span><input type="text" name="update.check_url" value="<?= $v('update.check_url') ?>" placeholder="返回 {version, package_url} 的 JSON"></label>
         <label class="field"><span class="label">后台入口门禁（自定义访问参数，建议设置）</span>
           <input type="text" name="security.admin_gate" value="<?= $v('security.admin_gate') ?>" placeholder="如 gate=8f3k9x">
-          <span class="hint">设置后：直接访问 /admin 一律 404，需先访问 /admin?gate=<值>（本机保留 30 天入口 cookie）。留空关闭。</span>
+          <span class="hint">设置后：/admin/login、验证码、TOTP 与已登录会话始终可用；匿名访问 /admin 跳转登录页，其他后台路径需先访问 /admin?gate=<值>（本机保留 30 天入口 cookie）。留空关闭。</span>
         </label>
         <label class="field"><span class="label">后台 IP 白名单（逗号分隔，留空=不限制）</span>
           <input type="text" name="security.admin_ips" value="<?= $v('security.admin_ips') ?>" placeholder="如 1.2.3.4,5.6.7.0/24">

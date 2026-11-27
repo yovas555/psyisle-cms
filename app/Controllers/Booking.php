@@ -13,6 +13,7 @@ use app\Core\Session;
 use app\Core\Validator;
 use app\Core\View;
 use app\Services\BookingPricing;
+use app\Services\BookingSlots;
 use app\Services\CounselorProfile;
 use app\Services\NotifyService;
 use app\Services\SeoService;
@@ -82,54 +83,86 @@ class Booking
             Session::flash('error', '咨询师不存在或已停用');
             \app\Core\ResponseRedirect('/booking');
         }
-        [$ok, $msgOrLabel] = \app\Services\BookingSlots::checkAvailable($cid, $date, $start);
-        if (!$ok) {
-            Session::flash('error', $msgOrLabel);
-            \app\Core\ResponseRedirect('/counselors/' . (string)$c['slug']);
-        }
-        $slotLabel = (string)$msgOrLabel;
-        $services = BookingPricing::forCounselor($cid);
-        $preService = (int)$req->get('service', 0);
-        if ($preService > 0 && !BookingPricing::offered($cid, $preService)) $preService = 0;
+        $calendarUrl = url('/counselors/' . rawurlencode((string)$c['slug']) . '#availability');
         $allowedModes = \app\Services\CounselorProfile::modes($c['service_modes'] ?? '');
         $requestedMethod = (string)$req->get('method', '');
         $preMethod = $requestedMethod !== '' && \app\Services\CounselorProfile::allows($c, $requestedMethod)
             ? $requestedMethod
             : ((!$allowedModes || in_array('面对面', $allowedModes, true)) ? '面对面' : $allowedModes[0]);
-        [$methodOk, $methodMessage] = \app\Services\BookingSlots::checkAvailable($cid, $date, $start, $preMethod);
-        if (!$methodOk) {
-            Session::flash('error', $methodMessage);
-            \app\Core\ResponseRedirect('/counselors/' . (string)$c['slug']);
+        // 同一时间可能展开为多个项目；只接受当前方式下该时段真实存在的项目。
+        $slotServices = [];
+        foreach (BookingSlots::slotsFor($cid, $date, true, $preMethod)['slots'] as $slot) {
+            if ($slot['start'] !== $start || empty($slot['available'])) continue;
+            $slotServiceId = (int)($slot['service_id'] ?? 0);
+            if (!isset($slotServices[$slotServiceId])) $slotServices[$slotServiceId] = $slot;
         }
-        $slotMethods = [];
-        foreach ($allowedModes ?: \app\Services\CounselorProfile::MODES as $mode) {
-            [$modeOk] = \app\Services\BookingSlots::checkAvailable($cid, $date, $start, $mode);
-            if ($modeOk) $slotMethods[] = $mode;
+        if (!$slotServices) {
+            Session::flash('error', '该时段刚刚被约满，请重新选择');
+            \app\Core\ResponseRedirect($calendarUrl);
+        }
+
+        $requestedService = $req->get('service', null);
+        $hasRequestedService = $requestedService !== null;
+        $preService = 0;
+        if ($hasRequestedService) {
+            $requestedServiceText = is_scalar($requestedService) ? trim((string)$requestedService) : '';
+            $validRequestedService = preg_match('/^\d+$/', $requestedServiceText) === 1;
+            if ($validRequestedService) $preService = (int)$requestedServiceText;
+            if (!$validRequestedService || !array_key_exists($preService, $slotServices)) {
+                Session::flash('error', '该时段不支持所选咨询项目，请重新选择');
+                \app\Core\ResponseRedirect($calendarUrl);
+            }
+        } else {
+            // 单项目时段自动选中；多项目时段默认第一项，仍可在确认页改选。
+            $preService = (int)array_key_first($slotServices);
+        }
+        $selectedSlot = $slotServices[$preService];
+        [$serviceOk, $slotLabel] = BookingSlots::checkAvailable($cid, $date, $start, $preMethod, $preService);
+        if (!$serviceOk) {
+            Session::flash('error', $slotLabel);
+            \app\Core\ResponseRedirect($calendarUrl);
+        }
+        $slotLabel = (string)$slotLabel;
+        $slotStoreId = (int)($selectedSlot['store_id'] ?? 0);
+
+        $methodsByService = [];
+        foreach ($slotServices as $slotServiceId => $slot) {
+            foreach ($allowedModes ?: \app\Services\CounselorProfile::MODES as $mode) {
+                [$modeOk] = BookingSlots::checkAvailable($cid, $date, $start, $mode, $slotServiceId);
+                if ($modeOk) $methodsByService[$slotServiceId][] = $mode;
+            }
+        }
+        $slotMethods = $methodsByService[$preService] ?? [];
+        $allSlotMethods = [];
+        foreach ($methodsByService as $methods) {
+            foreach ($methods as $mode) {
+                if (!in_array($mode, $allSlotMethods, true)) $allSlotMethods[] = $mode;
+            }
         }
         if (!in_array($preMethod, $slotMethods, true)) {
             Session::flash('error', '该时段不支持所选咨询方式，请重新选择');
-            \app\Core\ResponseRedirect('/counselors/' . (string)$c['slug']);
+            \app\Core\ResponseRedirect($calendarUrl);
         }
-        $slotStoreId = 0;
-        foreach (\app\Services\BookingSlots::slotsFor($cid, $date, true, $preMethod)['slots'] as $slot) {
-            if ($slot['start'] === $start && $slot['available']) {
-                $slotStoreId = (int)$slot['store_id'];
-                break;
+        $services = array_values(array_filter(
+            BookingPricing::forCounselor($cid),
+            static function (array $service) use ($slotServices): bool {
+                return isset($slotServices[(int)$service['id']]);
             }
-        }
+        ));
+        $allowServiceUndecided = isset($slotServices[0]);
         $servicePrices = [];
         foreach ($services as $service) {
             $servicePrices[(int)$service['id']] = BookingPricing::priceCents($cid, $date, $slotLabel, (int)$service['id']);
         }
         $mCur = \app\Services\MemberService::current();
         if (!$mCur && (bool)setting('booking.require_member', '1')) {
-            \app\Core\Session::set('member_return', '/booking/confirm?counselor=' . $cid . '&date=' . urlencode($date) . '&start=' . urlencode($start) . ($preService > 0 ? '&service=' . $preService : '') . '&method=' . urlencode($preMethod));
+            \app\Core\Session::set('member_return', '/booking/confirm?counselor=' . $cid . '&date=' . urlencode($date) . '&start=' . urlencode($start) . '&service=' . $preService . '&method=' . urlencode($preMethod));
             \app\Core\Session::flash('error', '预约请先登录会员账号（预约与提醒、支付均在会员中心管理）');
             \app\Core\ResponseRedirect('/member/login');
         }
-        // 价格预览（视频=在线支付；fee_override 分时价优先）
-        $genericFeeCents = BookingPricing::priceCents($cid, $date, $slotLabel);
-        $feeCents = BookingPricing::priceCents($cid, $date, $slotLabel, $preService);
+        // 价格预览（视频=在线支付；fee_override 分时价优先），始终按当前真实项目计价。
+        $genericFeeCents = $allowServiceUndecided ? BookingPricing::priceCents($cid, $date, $slotLabel, 0) : null;
+        $feeCents = (int)(BookingPricing::priceCents($cid, $date, $slotLabel, $preService) ?? 0);
         $extras = \app\Core\Hook::fire('booking.form.extras', [
             'req' => $req, 'top_html' => '', 'html' => '', 'slot_store_id' => $slotStoreId,
         ]);
@@ -141,9 +174,12 @@ class Booking
             'feeCents' => $feeCents,
             'genericFeeCents' => $genericFeeCents,
             'services' => $services,
+            'allowServiceUndecided' => $allowServiceUndecided,
             'preService' => $preService,
             'preMethod' => $preMethod,
             'slotMethods' => $slotMethods,
+            'allSlotMethods' => $allSlotMethods,
+            'serviceMethods' => $methodsByService,
             'servicePrices' => $servicePrices,
             'member' => $mCur,
             'week' => '周' . mb_substr('一二三四五六日', (int)date('N', strtotime($date)) - 1, 1),
@@ -157,13 +193,30 @@ class Booking
     {
         Csrf::guard();
         StatsService::track();
+        $mCur2 = \app\Services\MemberService::current();
+        if (!$mCur2 && (bool)setting('booking.require_member', '1')) {
+            Session::set('member_return', '/booking');
+            Session::flash('error', '预约请先登录会员账号（预约与提醒、支付均在会员中心管理）');
+            \app\Core\ResponseRedirect('/member/login');
+        }
         // 限流：同 IP 1 小时 5 次
         if (!RateLimiter::hit('booking', $req->ip(), 5, 3600)) {
             Session::flash('error', '操作过于频繁，请稍后再试');
             \app\Core\ResponseRedirect('/booking');
         }
         $data = $req->posts();
-        // v2.14.0：会员预约手机号锁定为登录会员本人
+        $isSlotMode = (string)($data['booking_mode'] ?? '') === 'slot';
+        $serviceValue = $data['service_id'] ?? null;
+        if (!array_key_exists('service_id', $data)) {
+            $serviceId = 0;
+        } elseif (!is_scalar($serviceValue)) {
+            $serviceId = -1;
+        } else {
+            $serviceText = trim((string)$serviceValue);
+            $serviceId = $serviceText === ''
+                ? 0
+                : (preg_match('/^\d+$/', $serviceText) === 1 ? (int)$serviceText : -1);
+        }
         $mCur2 = \app\Services\MemberService::current();
         if ($mCur2) { $data['phone'] = (string)$mCur2['phone']; $data['name'] = (string)($mCur2['name'] ?: $data['name']); }
         $v = new Validator($data, [
@@ -177,10 +230,10 @@ class Booking
         ], ['name' => '姓名', 'phone' => '手机号', 'captcha' => '验证码']);
         if ($v->fails() || !Captcha::check((string)$data['captcha'])) {
             Session::flash('error', $v->firstError() ?: '验证码不正确');
-            if ((string)($data['booking_mode'] ?? '') === 'slot') {
+            if ($isSlotMode) {
                 \app\Core\ResponseRedirect('/booking/confirm?counselor=' . (int)($data['counselor_id'] ?? 0)
                     . '&date=' . urlencode((string)($data['prefer_date'] ?? '')) . '&start=' . urlencode((string)($data['slot_start'] ?? ''))
-                    . ((int)($data['service_id'] ?? 0) > 0 ? '&service=' . (int)$data['service_id'] : '')
+                    . ($serviceId >= 0 ? '&service=' . $serviceId : '')
                     . '&method=' . urlencode((string)($data['method'] ?? '')));
             }
             \app\Core\ResponseRedirect('/booking');
@@ -206,10 +259,22 @@ class Booking
         if ($counselor && !CounselorProfile::allows($counselor, $method)) {
             Session::flash('error', '该咨询师不提供' . $method . '咨询，请选择其支持的服务方式');
             $return = '/booking?counselor=' . $counselorId . '&source=counselor';
-            if ((int)($data['service_id'] ?? 0) > 0) $return .= '&service=' . (int)$data['service_id'];
+            if ($serviceId >= 0) $return .= '&service=' . $serviceId;
             \app\Core\ResponseRedirect($return);
         }
-        $serviceId = (int)($data['service_id'] ?? 0);
+        if ($isSlotMode && !array_key_exists('service_id', $data)) {
+            Session::flash('error', '请选择具体咨询项目后提交预约');
+            \app\Core\ResponseRedirect('/booking?counselor=' . $counselorId . '&source=counselor');
+        }
+        if ($serviceId < 0) {
+            Session::flash('error', '服务项目参数不正确，请重新选择');
+            if ($isSlotMode) {
+                \app\Core\ResponseRedirect('/booking/confirm?counselor=' . $counselorId
+                    . '&date=' . urlencode((string)($data['prefer_date'] ?? '')) . '&start=' . urlencode((string)($data['slot_start'] ?? ''))
+                    . '&method=' . urlencode($method));
+            }
+            \app\Core\ResponseRedirect('/booking?counselor=' . $counselorId . '&source=counselor');
+        }
         if ($serviceId > 0) {
             if ($counselor && !BookingPricing::offered($counselorId, $serviceId)) {
                 Session::flash('error', '该咨询师不提供所选服务，请重新选择');
@@ -224,7 +289,6 @@ class Booking
             }
         }
         // v2.17.0：槽位预约（确认页提交）——精确时段校验 + 标准化 prefer_slot「HH:MM-HH:MM」
-        $isSlotMode = (string)($data['booking_mode'] ?? '') === 'slot';
         if (!$isSlotMode && $counselor && preg_match('/^\d{2}:\d{2}-\d{2}:\d{2}$/', trim((string)($data['prefer_slot'] ?? '')))) {
             Session::flash('error', '固定时段请从咨询师日历选择；预约申请请用文字描述其他期望时间');
             \app\Core\ResponseRedirect('/booking?counselor=' . $counselorId . '&source=counselor');
@@ -241,19 +305,28 @@ class Booking
                 Session::flash('error', '预约信息不完整，请从咨询师日历重新选择时段');
                 \app\Core\ResponseRedirect('/booking');
             }
-            [$okS, $msgOrLabelS] = \app\Services\BookingSlots::checkAvailable($cidS, $dateS, $startS, $method);
+            $daySlots = BookingSlots::slotsFor($cidS, $dateS, true, $method)['slots'];
+            if ($serviceId === 0) {
+                $allowsUndecided = false;
+                foreach ($daySlots as $slot) {
+                    if ($slot['start'] === $startS && (int)($slot['service_id'] ?? 0) === 0) {
+                        $allowsUndecided = true;
+                        break;
+                    }
+                }
+                if (!$allowsUndecided) {
+                    Session::flash('error', '该时段需要选择具体咨询项目，请重新选择');
+                    \app\Core\ResponseRedirect('/booking?counselor=' . $cidS . '&source=counselor');
+                }
+            }
+            [$okS, $msgOrLabelS, $checkedSlot] = BookingSlots::checkAvailable($cidS, $dateS, $startS, $method, $serviceId);
             if (!$okS) {
                 Session::flash('error', $msgOrLabelS);
                 \app\Core\ResponseRedirect('/booking?counselor=' . $cidS . '&source=counselor');
             }
-            $data['prefer_slot'] = (string)$msgOrLabelS; // 「HH:MM-HH:MM」
-            $data['slot_store_id'] = 0;
-            foreach (\app\Services\BookingSlots::slotsFor($cidS, $dateS, true, $method)['slots'] as $slot) {
-                if ($slot['start'] === $startS && $slot['available']) {
-                    $data['slot_store_id'] = (int)$slot['store_id'];
-                    break;
-                }
-            }
+            $data['prefer_slot'] = (string)$msgOrLabelS;
+            $data['service_id'] = $serviceId;
+            $data['slot_store_id'] = (int)($checkedSlot['store_id'] ?? 0);
         }
 
         $code = gen_code(8);
@@ -282,7 +355,19 @@ class Booking
         // v2.17.0 用户拍板：可用时段内的预约**免机构确认**——无需支付的（面对面/电话/未定价）提交即确认；
         // 需在线支付的先 pending，支付成功后由 wechat-pay 自动确认（applyCredit）
         $autoConfirmed = $isSlotMode && $payStatus === 'free';
-        $insertBooking = static function () use ($data, $extra, $code, $amountCents, $payStatus, $autoConfirmed, $req): int {
+        $insertBooking = static function (string $label = '', array $slot = []) use (&$data, &$extra, $code, &$amountCents, &$payStatus, &$autoConfirmed, $req): int {
+            if ($slot) {
+                $data['prefer_slot'] = $label;
+                $data['slot_store_id'] = (int)($slot['store_id'] ?? 0);
+                $amountCents = null; $payStatus = 'free';
+                if ($data['method'] === '视频') {
+                    $amountCents = BookingPricing::priceCents((int)$data['counselor_id'], (string)$data['prefer_date'], $label, (int)$data['service_id']);
+                    $payStatus = ($amountCents !== null && $amountCents > 0) ? 'unpaid' : 'free';
+                }
+                $autoConfirmed = $payStatus === 'free';
+                $extra = \app\Core\Hook::fire('booking.before_insert', ['data' => $data, 'fields' => [], 'note' => '', 'error' => null]);
+                if (!empty($extra['error'])) return 0;
+            }
             return Database::insert('bookings', array_merge([
                 'code' => $code,
                 'service_id' => (int)($data['service_id'] ?? 0) ?: null,
@@ -309,12 +394,9 @@ class Booking
             ], is_array($extra['fields'] ?? null) ? $extra['fields'] : []));
         };
         if ($isSlotMode) {
-            [$okS, $msgOrLabelS, $id] = \app\Services\BookingSlots::reserve(
+            [$okS, $msgOrLabelS, $id] = BookingSlots::reserve(
                 (int)$data['counselor_id'], (string)$data['prefer_date'], (string)$data['slot_start'],
-                static function (string $label) use ($data, $insertBooking): int {
-                    $data['prefer_slot'] = $label;
-                    return $insertBooking();
-                },
+                $insertBooking,
                 $serviceId,
                 $method
             );
@@ -463,6 +545,10 @@ class Booking
             'slots_full' => array_map(fn($s) => [
                 'label' => $s['label'], 'start' => $s['start'], 'end' => $s['end'], 'available' => $s['available'],
                 'service_mode' => $s['service_mode'] ?? 'all', 'store_id' => (int)($s['store_id'] ?? 0),
+                'service_id' => (int)($s['service_id'] ?? 0),
+                'service_name' => (string)($s['service_name'] ?? '项目待定'),
+                'price_cents' => $s['price_cents'] ?? null,
+                'price_text' => (string)($s['price_text'] ?? BookingPricing::formatCents($s['price_cents'] ?? null)),
             ], $day['slots']),
             'leave' => $day['leave'], 'closed_note' => $day['closed_note'],
             'confirm_url' => url('/booking/confirm'),

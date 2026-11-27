@@ -12,6 +12,7 @@ use app\Core\Uploader;
 use app\Services\CounselorScope;
 use app\Services\CounselorProfileReview;
 use app\Services\CounselorWorkspace;
+use app\Services\BookingSlots;
 use app\Services\PostSessionService;
 
 /**
@@ -309,44 +310,26 @@ class CounselorHome extends Base
             Csrf::guard();
             $act = (string)$req->post('act', '');
             if ($act === 'slots') {
-                // 每行：星期|开始|结束[|单次分钟|方式|门店ID]
-                $lines = preg_split('/\r\n|\r|\n/', (string)$req->post('slots_text', '')) ?: [];
-                $rows = [];
-                $error = '';
-                $validStores = [];
-                foreach (Database::fetchAll('SELECT id FROM stores WHERE status=1') as $storeRow) $validStores[(int)$storeRow['id']] = true;
-                foreach ($lines as $line) {
-                    if (trim((string)$line) === '') continue;
-                    $parts = array_map('trim', explode('|', trim((string)$line)));
-                    if (count($parts) < 3) { $error = '排班格式不正确，每行至少需要星期、开始和结束时间'; break; }
-                    $wd = (int)$parts[0];
-                    $slotMin = (int)($parts[3] ?? 50);
-                    $slotMode = (string)($parts[4] ?? 'all');
-                    $slotStoreId = max(0, (int)($parts[5] ?? 0));
-                    if ($wd < 1 || $wd > 7
-                        || !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', (string)$parts[1])
-                        || !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', (string)$parts[2])
-                        || strcmp((string)$parts[2], (string)$parts[1]) <= 0) {
-                        $error = '排班时间不正确，结束时间必须晚于开始时间';
-                        break;
-                    }
-                    if ($slotMin < 10 || $slotMin > 240) { $error = '单次咨询时长需在 10–240 分钟之间'; break; }
-                    if (!in_array($slotMode, ['all', 'offline', 'online'], true)) { $error = '咨询方式只能是 all、offline 或 online'; break; }
-                    if ($slotMode === 'online') $slotStoreId = 0;
-                    if ($slotStoreId > 0 && !isset($validStores[$slotStoreId])) { $error = '排班门店不存在或已停用'; break; }
-                    $rows[] = [
-                        'counselor_id' => $cid, 'weekday' => $wd,
-                        'start_time' => (string)$parts[1] . ':00', 'end_time' => (string)$parts[2] . ':00',
-                        'slot_minutes' => $slotMin, 'service_mode' => $slotMode,
-                        'store_id' => $slotStoreId, 'status' => 1,
-                    ];
+                if (array_key_exists('slots', $_POST)) {
+                    $rawSlots = is_array($_POST['slots']) ? array_values($_POST['slots']) : null;
+                } else {
+                    [$rawSlots, $parseError] = BookingSlots::parseSlotText((string)$req->post('slots_text', ''));
                 }
+                if ($rawSlots === null || !empty($parseError)) {
+                    Session::flash('error', ($parseError ?? '排班数据格式不正确') . '；原排班未修改');
+                    \app\Core\ResponseRedirect('/admin/counselor-home/schedule');
+                }
+                [$rows, $error] = BookingSlots::validateSlotRows($rawSlots, $cid);
                 if ($error !== '') {
                     Session::flash('error', $error . '；原排班未修改');
                 } else {
                     Database::transaction(static function () use ($cid, $rows): void {
                         Database::run('DELETE FROM counselor_slots WHERE counselor_id=?', [$cid]);
-                        foreach ($rows as $row) Database::insert('counselor_slots', $row);
+                        foreach ($rows as $row) {
+                            $row['start_time'] .= ':00';
+                            $row['end_time'] .= ':00';
+                            Database::insert('counselor_slots', $row);
+                        }
                     });
                     Session::flash('success', '可约时段已更新');
                 }
@@ -354,19 +337,34 @@ class CounselorHome extends Base
             }
             if ($act === 'override') {
                 $date = (string)$req->post('date', '');
-                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-                    // v2.17.0 修复：状态值对齐 schedule-pro 的 closed/open（原 on/off 前台不识别，例外排班从不生效）
-                    $ovStatus = (string)$req->post('status', 'closed') === 'open' ? 'open' : 'closed';
-                    Database::run('DELETE FROM schedule_overrides WHERE counselor_id=? AND date=?', [$cid, $date]);
-                    Database::insert('schedule_overrides', [
-                        'counselor_id' => $cid, 'date' => $date,
-                        'status' => $ovStatus,
-                        'start_time' => str_take(trim((string)$req->post('start_time', '')), 8, ''),
-                        'end_time' => str_take(trim((string)$req->post('end_time', '')), 8, ''),
-                        'note' => str_take(trim((string)$req->post('note', '')), 190, ''),
-                        'created_at' => date('Y-m-d H:i:s'),
-                    ]);
+                $dateParts = explode('-', $date);
+                $validDate = count($dateParts) === 3 && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)
+                    && checkdate((int)$dateParts[1], (int)$dateParts[2], (int)$dateParts[0]);
+                $ovStatus = (string)$req->post('status', 'closed') === 'open' ? 'open' : 'closed';
+                $start = trim((string)$req->post('start_time', ''));
+                $end = trim((string)$req->post('end_time', ''));
+                $note = str_take(trim((string)$req->post('note', '')), 190, '');
+                $validOpen = true;
+                if ($ovStatus === 'open') {
+                    $startTs = preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $start) ? strtotime('2000-01-01 ' . $start) : false;
+                    $endTs = preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $end) ? strtotime('2000-01-01 ' . $end) : false;
+                    $validOpen = $startTs !== false && $endTs !== false && $endTs > $startTs;
+                }
+                if ($validDate && $validOpen) {
+                    Database::transaction(static function () use ($cid, $date, $ovStatus, $start, $end, $note): void {
+                        Database::run('DELETE FROM schedule_overrides WHERE counselor_id=? AND date=?', [$cid, $date]);
+                        Database::insert('schedule_overrides', [
+                            'counselor_id' => $cid, 'date' => $date,
+                            'status' => $ovStatus,
+                            'start_time' => str_take($start, 8, ''),
+                            'end_time' => str_take($end, 8, ''),
+                            'note' => $note,
+                            'created_at' => date('Y-m-d H:i:s'),
+                        ]);
+                    });
                     Session::flash('success', '例外排班已保存（前台时段实时生效）');
+                } else {
+                    Session::flash('error', '例外排班日期或开放时间不正确；原设置未修改');
                 }
                 \app\Core\ResponseRedirect('/admin/counselor-home/schedule');
             }
@@ -401,14 +399,79 @@ class CounselorHome extends Base
                 \app\Core\ResponseRedirect('/admin/counselor-home/schedule');
             }
             if ($act === 'fee') {
-                $feeArr = [];
-                foreach (Database::fetchAll('SELECT weekday, start_time, end_time FROM counselor_slots WHERE counselor_id=? AND status=1', [$cid]) as $r) {
-                    $feeKey = 'fee_' . $r['weekday'] . '_' . substr((string)$r['start_time'], 0, 5);
-                    $cents = max(0, (int)round((float)($req->post($feeKey, 0)) * 100));
-                    if ($cents > 0) $feeArr[] = ['weekday' => $r['weekday'], 'slot' => substr((string)$r['start_time'], 0, 5), 'price_cents' => $cents];
+                $offeredIds = array_map('intval', array_column(Database::fetchAll(
+                    'SELECT cs.service_id FROM counselor_services cs JOIN services s ON s.id=cs.service_id WHERE cs.counselor_id=? AND s.status=1',
+                    [$cid]
+                ), 'service_id'));
+                $offeredMap = array_fill_keys($offeredIds, true);
+                $rawOverrides = (array)$req->post('fee_overrides', []);
+                if (!$rawOverrides) {
+                    foreach ($_POST as $key => $value) {
+                        if (!preg_match('/^fee_([1-7])_(\d{2}:\d{2})$/', (string)$key, $m)) continue;
+                        $rawOverrides[] = ['weekday' => $m[1], 'slot' => $m[2], 'service_id' => 0, 'price' => $value];
+                    }
                 }
-                Database::run('UPDATE counselors SET fee_override=? WHERE id=?', [json_encode($feeArr, JSON_UNESCAPED_UNICODE), $cid]);
-                Session::flash('success', '分时定价已保存');
+                $feeArr = [];
+                $feeMap = [];
+                $error = '';
+                foreach ($rawOverrides as $override) {
+                    if (!is_array($override)) { $error = '分时定价格式不正确'; break; }
+                    $weekday = (int)($override['weekday'] ?? 0);
+                    $slot = (string)($override['slot'] ?? '');
+                    $serviceId = (int)($override['service_id'] ?? 0);
+                    $price = trim((string)($override['price'] ?? ''));
+                    if ($weekday < 1 || $weekday > 7 || !preg_match('/^\d{2}:\d{2}$/', $slot)
+                        || ($serviceId > 0 && !isset($offeredMap[$serviceId]))) {
+                        $error = '分时定价的时段或项目无效';
+                        break;
+                    }
+                    if ($price === '') continue;
+                    if (!is_numeric($price) || (float)$price < 0 || (float)$price > 1000000) {
+                        $error = '分时价格须为 0–1,000,000 之间的数字';
+                        break;
+                    }
+                    $cents = (int)round((float)$price * 100);
+                    if ($cents <= 0) continue;
+                    $key = $weekday . '|' . $slot . '|' . $serviceId;
+                    $feeMap[$key] = ['weekday' => $weekday, 'slot' => $slot, 'service_id' => $serviceId, 'price_cents' => $cents];
+                }
+                $prices = [];
+                foreach ((array)$req->post('service_prices', []) as $serviceId => $price) {
+                    $serviceId = (int)$serviceId;
+                    if (!isset($offeredMap[$serviceId])) continue;
+                    $price = trim((string)$price);
+                    if ($price === '') { $prices[$serviceId] = null; continue; }
+                    if (!is_numeric($price) || (float)$price < 0 || (float)$price > 1000000) {
+                        $error = '项目价格须为 0–1,000,000 之间的数字';
+                        break;
+                    }
+                    $cents = (int)round((float)$price * 100);
+                    $prices[$serviceId] = $cents > 0 ? $cents : null;
+                }
+                if ($error !== '') {
+                    Session::flash('error', $error . '；原价格未修改');
+                } else {
+                    $existing = json_decode((string)Database::value('SELECT fee_override FROM counselors WHERE id=?', [$cid]), true);
+                    $managedKeys = [];
+                    foreach ($rawOverrides as $override) {
+                        if (!is_array($override)) continue;
+                        $managedKeys[(int)($override['weekday'] ?? 0) . '|' . (string)($override['slot'] ?? '') . '|' . (int)($override['service_id'] ?? 0)] = true;
+                    }
+                    if (is_array($existing)) {
+                        foreach ($existing as $row) {
+                            $key = (int)($row['weekday'] ?? 0) . '|' . (string)($row['slot'] ?? '') . '|' . (int)($row['service_id'] ?? 0);
+                            if (!isset($managedKeys[$key])) $feeMap[$key] = $row;
+                        }
+                    }
+                    $feeArr = array_values($feeMap);
+                    Database::transaction(static function () use ($cid, $feeArr, $prices): void {
+                        Database::run('UPDATE counselors SET fee_override=? WHERE id=?', [json_encode($feeArr, JSON_UNESCAPED_UNICODE), $cid]);
+                        foreach ($prices as $serviceId => $cents) {
+                            Database::run('UPDATE counselor_services SET price_cents=? WHERE counselor_id=? AND service_id=?', [$cents, $cid, $serviceId]);
+                        }
+                    });
+                    Session::flash('success', '项目价格与分时定价已保存');
+                }
                 \app\Core\ResponseRedirect('/admin/counselor-home/schedule');
             }
             if ($act === 'leave') {
